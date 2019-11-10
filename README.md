@@ -49,7 +49,7 @@ async def enumerate_share_files(
         Scan a directory in an SMB share and provide information about its contents.
 
         :param path: The path of the directory to be scanned.
-        :return: A list of file/directory information entries.
+        :return: The path of the enumerated directory and a list of its file/directory information entries.
         """
 
         async with smb_connection.create_dir_cm(path=path, session=smb_session, tree_id=tree_id) as create_response:
@@ -64,10 +64,8 @@ async def enumerate_share_files(
 
     def default_per_file_callback(entry_path: PureWindowsPath, *_) -> bool:
         """
-        The default per-file callback.
-
-        Prints each encountered file's path and to enumerate each encountered directory.
-
+        Print each encountered file's path and decide to enumerate an encountered directory.
+        
         :param entry_path: The path of an encountered file in an SMB share.
         :return: Whether to enumerate an encountered directory. Always `True`.
         """

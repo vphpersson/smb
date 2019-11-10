@@ -6,7 +6,6 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-impacket = {git = "https://github.com/SecureAuthCorp/impacket"}
 msdsalgs = {git = "https://github.com/vphpersson/msdsalgs"}
 ntlm = {git = "https://github.com/vphpersson/ntlm"}
 spnego = {git = "https://github.com/vphpersson/spnego"}

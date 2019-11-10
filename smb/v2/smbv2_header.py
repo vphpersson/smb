@@ -120,7 +120,7 @@ class SMBv2SyncHeader(SMBv2Header):
         #   but it appears to be used in the protocol examples in the docs (credit charge present)
         if dialect in {Dialect.SMB_2_1, Dialect.SMB_2_WILDCARD}:
             return SMB210SyncHeader(
-                status=NTSTATUS.from_bytes(data=data[8:12]) if data[8:12] != cls.EMPTY_STATUS else None,
+                status=NTSTATUS.from_bytes(data=data[8:12]),
                 credit_charge=credit_charge,
                 **base_kwargs
             )

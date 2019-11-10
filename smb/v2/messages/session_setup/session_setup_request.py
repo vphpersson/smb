@@ -6,11 +6,12 @@ from typing import Optional, ClassVar
 
 from smb.v2.smbv2_header import SMBv2Header, SMB202SyncHeader, SMB210SyncHeader, SMB300SyncHeader, \
     SMB302SyncHeader, SMB311SyncHeader, SMBv2Command, SMBv2Flag
-from smb.v2.smbv2_message import SMBv2Message
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
 from smb.v2.dialect import Dialect
 from smb.v2.security_mode import SecurityMode
 from smb.v2.capabilities import CapabilitiesFlag
 from smb.exceptions import MalformedSessionSetupRequestError, IncorrectStructureSizeError
+from smb.smb_message import SMBRequestMessage
 
 
 class SessionSetupRequestFlag(IntEnum):
@@ -19,7 +20,8 @@ class SessionSetupRequestFlag(IntEnum):
 
 
 @dataclass
-class SessionSetupRequest(SMBv2Message):
+@register_smbv2_message
+class SessionSetupRequest(SMBv2Message, SMBRequestMessage):
     flags: SessionSetupRequestFlag
     security_mode: SecurityMode
     capabilities: CapabilitiesFlag
@@ -27,10 +29,11 @@ class SessionSetupRequest(SMBv2Message):
     security_buffer: bytes
 
     structure_size: ClassVar[int] = 25
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
     _channel: ClassVar[bytes] = 4 * b'\x00'
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header):
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header):
 
         body_data: bytes = data[len(header):]
 

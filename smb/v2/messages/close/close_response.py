@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 from struct import pack as struct_pack, unpack as struct_unpack
 
-from smb.v2.smbv2_message import SMBv2Message
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
 from smb.v2.messages.create.create_request import FileAttributes
 from smb.v2.messages.close.close_request import CloseFlag
-from smb.v2.smbv2_header import SMBv2Header
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.v2.file_information import FileInformation
 from smb.exceptions import IncorrectStructureSizeError, MalformedCloseResponseError, \
     InvalidCloseResponseFlagValueError, NonEmptyCloseResponseReservedValueError, \
@@ -14,18 +14,21 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedCloseResponseEr
     NonEmptyCloseResponseLastAccessTimeValueError, NonEmptyCloseResponseLastWriteTimeValueError, \
     NonEmptyCloseResponseChangeTimeValueError, NonEmptyCloseResponseAllocationSizeValueError, \
     NonEmptyCloseResponseEndofFileValueError, NonEmptyCloseResponseFileAttributesValueError
+from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
-class CloseResponse(SMBv2Message):
+@register_smbv2_message
+class CloseResponse(SMBv2Message, SMBResponseMessage):
     flags: CloseFlag
     file_information: Optional[FileInformation] = None
 
     structure_size: ClassVar[int] = 60
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CLOSE
     _reserved: ClassVar[bytes] = 4 * b'\x00'
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> CloseResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> CloseResponse:
         body_data: bytes = data[len(header):]
 
         try:

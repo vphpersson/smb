@@ -5,17 +5,18 @@ from enum import IntEnum, IntFlag
 from datetime import datetime
 from struct import unpack as struct_unpack, pack as struct_pack
 
-from smb.v2.smbv2_message import SMBv2Message
-from smb.v2.smbv2_header import SMBv2Header, SMB311SyncHeader, SMB311AsyncHeader
+from msdsalgs.time import filetime_to_datetime
+from msdsalgs.utils import make_mask_class
+
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMB311SyncHeader, SMB311AsyncHeader, SMBv2Command
 from smb.v2.messages.create.create_context import CreateContextList
 from smb.v2.messages.create.create_request import OplockLevel, FileAttributes
 from smb.v2.file_id import FileId
 from smb.exceptions import IncorrectStructureSizeError, MalformedCreateResponseError, \
     InvalidCreateResponseOplockLevelError, InvalidCreateResponseFlagError, InvalidCreateResponseActionError, \
     InvalidCreateResponseFileAttributesError
-
-from msdsalgs.time import filetime_to_datetime
-from msdsalgs.utils import make_mask_class
+from smb.smb_message import SMBResponseMessage
 
 
 class CreateAction(IntEnum):
@@ -33,7 +34,8 @@ CreateFlag = make_mask_class(CreateFlagMask, prefix='SMB_CREATE_FLAG_')
 
 
 @dataclass
-class CreateResponse(SMBv2Message):
+@register_smbv2_message
+class CreateResponse(SMBv2Message, SMBResponseMessage):
     oplock_level: OplockLevel
     flags: Optional[CreateFlag]
     create_action: CreateAction
@@ -48,6 +50,7 @@ class CreateResponse(SMBv2Message):
     create_contexts: CreateContextList
 
     structure_size: ClassVar[int] = 89
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CREATE
     _reserved_2: ClassVar[bytes] = 4 * b'\x00'
 
     @property
@@ -67,7 +70,7 @@ class CreateResponse(SMBv2Message):
         return filetime_to_datetime(filetime=self._change_time)
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> CreateResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> CreateResponse:
 
         body_data: bytes = data[len(header):]
 

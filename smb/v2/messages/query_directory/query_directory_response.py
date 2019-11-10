@@ -5,10 +5,11 @@ from struct import pack as struct_pack, unpack as struct_unpack
 
 from msdsalgs.utils import extract_elements
 
-from smb.v2.smbv2_message import SMBv2Message
-from smb.v2.smbv2_header import SMBv2Header
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.v2.file_information import FileInformation
 from smb.exceptions import IncorrectStructureSizeError, MalformedQueryDirectoryResponseError
+from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
@@ -51,13 +52,15 @@ class FileIdFullDirectoryInformation(FileDirectoryInformation):
 
 
 @dataclass
-class QueryDirectoryResponse(SMBv2Message):
+@register_smbv2_message
+class QueryDirectoryResponse(SMBv2Message, SMBResponseMessage):
 
     _buffer: bytes
     structure_size: ClassVar[int] = 9
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_QUERY_DIRECTORY
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> QueryDirectoryResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> QueryDirectoryResponse:
 
         body_data: bytes = data[len(header):]
 

@@ -4,11 +4,12 @@ from typing import ClassVar
 from enum import IntEnum, IntFlag
 from struct import unpack as struct_unpack, pack as struct_pack
 
-from smb.v2.smbv2_message import SMBv2Message
-from smb.v2.smbv2_header import SMBv2Header
-from smb.v2.access_mask import FilePipePrinterAccessMask
-
 from msdsalgs.utils import make_mask_class
+
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
+from smb.v2.access_mask import FilePipePrinterAccessMask
+from smb.smb_message import SMBResponseMessage
 
 
 class ShareType(IntEnum):
@@ -51,21 +52,24 @@ ShareCapabilities = make_mask_class(ShareCapabilitiesMask, prefix='SMB2_SHARE_CA
 
 
 @dataclass
-class TreeConnectResponse(SMBv2Message):
+@register_smbv2_message
+class TreeConnectResponse(SMBv2Message, SMBResponseMessage):
     share_type: ShareType
     share_flag: ShareFlag
     share_capabilities: ShareCapabilities
     maximal_access: FilePipePrinterAccessMask
 
     structure_size: ClassVar[int] = 16
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
 
         body_data: bytes = data[len(header):]
 
         cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
 
+        # TODO: Use a `ClassVar`.
         # Reserved
         if body_data[3:4] != b'\x00':
             # TODO: Raise proper exception.

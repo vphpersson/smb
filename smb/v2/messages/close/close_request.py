@@ -4,13 +4,14 @@ from typing import ClassVar
 from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntFlag
 
-from smb.v2.smbv2_message import SMBv2Message
-from smb.v2.smbv2_header import SMBv2Header
+from msdsalgs.utils import make_mask_class
+
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedCloseRequestError, \
     NonEmptyCloseRequestReservedValueError, InvalidCloseRequestFlagValueError
 from smb.v2.file_id import FileId
-
-from msdsalgs.utils import make_mask_class
+from smb.smb_message import SMBRequestMessage
 
 
 class CloseFlagMask(IntFlag):
@@ -23,16 +24,18 @@ CloseFlag = make_mask_class(CloseFlagMask, prefix='SMB2_CLOSE_FLAG_')
 
 
 @dataclass
-class CloseRequest(SMBv2Message):
+@register_smbv2_message
+class CloseRequest(SMBv2Message, SMBRequestMessage):
 
     flags: CloseFlag
     file_id: FileId
 
     structure_size: ClassVar[int] = 24
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CLOSE
     _reserved: ClassVar[bytes] = 4 * b'\x00'
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> CloseRequest:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> CloseRequest:
         body_data: bytes = data[len(header):]
 
         try:

@@ -42,3 +42,11 @@ class SMBMessage(ABC):
     @abstractmethod
     def __len__(self) -> int:
         pass
+
+
+class SMBRequestMessage(ABC):
+    pass
+
+
+class SMBResponseMessage(ABC):
+    pass

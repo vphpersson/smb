@@ -6,19 +6,21 @@ from uuid import UUID
 from datetime import datetime
 from typing import ClassVar
 
-from smb.v2.smbv2_message import SMBv2Message
-from smb.v2.smbv2_header import SMBv2Header
+from msdsalgs.time import filetime_to_datetime
+
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.v2.security_mode import SecurityMode
 from smb.v2.dialect import Dialect
 from smb.v2.capabilities import CapabilitiesFlag
 from smb.v2.negotiate_context import NegotiateContextList
 from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateResponseError
-
-from msdsalgs.time import filetime_to_datetime
+from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
-class NegotiateResponse(SMBv2Message, ABC):
+@register_smbv2_message
+class NegotiateResponse(SMBv2Message, SMBResponseMessage, ABC):
     dialect_revision: Dialect
     security_mode: SecurityMode
     server_guid: UUID
@@ -31,6 +33,7 @@ class NegotiateResponse(SMBv2Message, ABC):
     security_buffer: bytes
 
     structure_size: ClassVar[int] = 65
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_NEGOTIATE
 
     @property
     def system_time(self) -> datetime:
@@ -41,7 +44,7 @@ class NegotiateResponse(SMBv2Message, ABC):
         return filetime_to_datetime(filetime=self._server_start_time)
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> NegotiateResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> NegotiateResponse:
 
         body_data: bytes = data[len(header):]
 

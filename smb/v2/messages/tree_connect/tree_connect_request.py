@@ -5,13 +5,14 @@ from abc import ABC
 from enum import IntFlag, IntEnum
 from struct import pack as struct_pack, unpack as struct_unpack
 
+from msdsalgs.utils import make_mask_class
+
 from smb.v2.smbv2_header import SMBv2Header, SMB202SyncHeader, SMB202AsyncHeader, SMB210SyncHeader, \
     SMB210AsyncHeader, SMB300SyncHeader, SMB300AsyncHeader, SMB302SyncHeader, SMB302AsyncHeader, SMB311SyncHeader, \
     SMB311AsyncHeader, SMBv2Command, SMBv2Flag
-from smb.v2.smbv2_message import SMBv2Message, calculate_credit_charge
+from smb.v2.smbv2_message import SMBv2Message, calculate_credit_charge, register_smbv2_message
 from smb.v2.dialect import Dialect
-
-from msdsalgs.utils import make_mask_class
+from smb.smb_message import SMBRequestMessage
 
 
 class TreeConnectFlagMask(IntFlag):
@@ -55,11 +56,13 @@ class RemotedIdentityTreeConnectContext(TreeConnectRequestExtension):
 
 
 @dataclass
-class TreeConnectRequest(SMBv2Message, ABC):
+@register_smbv2_message
+class TreeConnectRequest(SMBv2Message, SMBRequestMessage, ABC):
     structure_size: ClassVar[int] = 9
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> TreeConnectRequest:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> TreeConnectRequest:
 
         body_data: bytes = data[len(header):]
 

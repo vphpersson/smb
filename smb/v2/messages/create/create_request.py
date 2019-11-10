@@ -6,8 +6,10 @@ from enum import IntEnum, IntFlag
 from pathlib import PureWindowsPath
 from math import ceil
 
-from smb.v2.smbv2_message import SMBv2Message
-from smb.v2.smbv2_header import SMBv2Header
+from msdsalgs.utils import make_mask_class
+
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedCreateRequestError, \
     NonEmptySecurityFlagsError, NonEmptySmbCreateFlagsError, InvalidCreateDesiredAccessValueError, \
     InvalidCreateDispositionValueError, InvalidCreateFileAttributesValueError, \
@@ -16,8 +18,7 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedCreateRequestEr
     InvalidCreateNameError
 from smb.v2.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
 from smb.v2.messages.create.create_context import CreateContextList
-
-from msdsalgs.utils import make_mask_class
+from smb.smb_message import SMBRequestMessage
 
 
 class OplockLevel(IntEnum):
@@ -102,7 +103,8 @@ CreateOptions = make_mask_class(CreateOptionsFlag, prefix='FILE_')
 
 
 @dataclass
-class CreateRequest(SMBv2Message):
+@register_smbv2_message
+class CreateRequest(SMBv2Message, SMBRequestMessage):
     requested_oplock_level: OplockLevel
     impersonation_level: ImpersonationLevel
     desired_access: Union[FilePipePrinterAccessMask, DirectoryAccessMask]
@@ -114,8 +116,10 @@ class CreateRequest(SMBv2Message):
     create_context_list: CreateContextList
 
     structure_size: ClassVar[int] = 57
+    # TODO: What are `security_flags` and `smb_create_flags` class vars?
     security_flags: ClassVar[int] = 0
     smb_create_flags: ClassVar[bytes] = 8 * b'\x00'
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CREATE
     _reserved: ClassVar[bytes] = 8 * b'\x00'
 
     @property
@@ -123,7 +127,7 @@ class CreateRequest(SMBv2Message):
         return PureWindowsPath(self.name)
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
 
         body_data: bytes = data[len(header):]
 

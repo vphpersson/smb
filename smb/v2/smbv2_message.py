@@ -1,12 +1,13 @@
 from __future__ import annotations
-from abc import ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Tuple, Dict, Type
 from math import ceil
 
 from smb.smb_message import SMBMessage
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError
+from smb.smb_message import SMBResponseMessage
 
 
 # TODO: Does this make sense?
@@ -19,6 +20,8 @@ class SMBv2Message(SMBMessage, ABC):
     header: SMBv2Header
 
     structure_size: ClassVar[int] = NotImplemented
+    _command: ClassVar[SMBv2Command] = NotImplemented
+    _command_and_type_to_class: ClassVar[Dict[Tuple[SMBv2Command, bool], Type[SMBv2Message]]] = {}
 
     @classmethod
     def check_structure_size(cls, structure_size_to_test: int) -> None:
@@ -27,6 +30,11 @@ class SMBv2Message(SMBMessage, ABC):
                 observed_structure_size=structure_size_to_test,
                 expected_structure_size=cls.structure_size
             )
+
+    @classmethod
+    @abstractmethod
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
+        pass
 
     @classmethod
     def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
@@ -50,51 +58,17 @@ class SMBv2Message(SMBMessage, ABC):
         from smb.v2.messages.logoff.logoff_request import LogoffRequest
         from smb.v2.messages.logoff.logoff_response import LogoffResponse
 
-        if header.command is SMBv2Command.SMB2_NEGOTIATE:
-            return (NegotiateResponse if header.flags.server_to_redir else NegotiateRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
-        elif header.command is SMBv2Command.SMB2_SESSION_SETUP:
-            return (SessionSetupResponse if header.flags.server_to_redir else SessionSetupRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
-        elif header.command is SMBv2Command.SMB2_TREE_CONNECT:
-            return (TreeConnectResponse if header.flags.server_to_redir else TreeConnectRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
-        elif header.command is SMBv2Command.SMB2_CREATE:
-            return (CreateResponse if header.flags.server_to_redir else CreateRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
-        elif header.command is SMBv2Command.SMB2_READ:
-            return (ReadResponse if header.flags.server_to_redir else ReadRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
-        elif header.command is SMBv2Command.SMB2_QUERY_DIRECTORY:
-            return (QueryDirectoryResponse if header.flags.server_to_redir else QueryDirectoryRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
-        elif header.command is SMBv2Command.SMB2_CLOSE:
-            return (CloseResponse if header.flags.server_to_redir else CloseRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
-        elif header.command is SMBv2Command.SMB2_TREE_DISCONNECT:
-            return (TreeDisconnectResponse if header.flags.server_to_redir else TreeDisconnectRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
-        elif header.command is SMBv2Command.SMB2_LOGOFF:
-            return (LogoffResponse if header.flags.server_to_redir else LogoffRequest).from_bytes_and_header(
-                data=data,
-                header=header
-            )
+        lookup_key_tuple: Tuple[SMBv2Command, bool] = (header.command, header.flags.server_to_redir)
+
+        if cls != SMBv2Message:
+            if lookup_key_tuple != (cls._command, issubclass(cls, SMBResponseMessage)):
+                # TODO: Use proper exception.
+                raise ValueError
+            return cls._from_bytes_and_header(data=data, header=header)
         else:
-            # TODO: Use proper exception.
-            raise ValueError
+            return cls._command_and_type_to_class[lookup_key_tuple]._from_bytes_and_header(data=data, header=header)
+
+
+def register_smbv2_message(cls: Type[SMBv2Message]):
+    cls._command_and_type_to_class[(cls._command, issubclass(cls, SMBResponseMessage))] = cls
+    return cls

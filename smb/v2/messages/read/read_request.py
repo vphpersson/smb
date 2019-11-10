@@ -5,14 +5,15 @@ from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntEnum, IntFlag
 from abc import ABC
 
-from smb.v2.smbv2_message import SMBv2Message
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMB202SyncHeader, SMB202AsyncHeader, SMB210SyncHeader, \
     SMB210AsyncHeader, SMB300SyncHeader, SMB300AsyncHeader, SMB302SyncHeader, SMB302AsyncHeader, SMB311SyncHeader, \
-    SMB311AsyncHeader
+    SMB311AsyncHeader, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedReadRequestError, InvalidReadRequestFlagError,\
     InvalidReadRequestChannelError, InvalidReadRequestReadChannelInfoOffsetError,\
     InvalidReadRequestReadChannelLengthError
 from smb.v2.file_id import FileId
+from smb.smb_message import SMBRequestMessage
 
 from msdsalgs.utils import make_mask_class
 
@@ -32,7 +33,8 @@ class ReadRequestChannel(IntEnum):
 
 
 @dataclass
-class ReadRequest(SMBv2Message, ABC):
+@register_smbv2_message
+class ReadRequest(SMBv2Message, SMBRequestMessage, ABC):
 
     padding: int
     length: int
@@ -42,10 +44,11 @@ class ReadRequest(SMBv2Message, ABC):
     remaining_bytes: int
 
     structure_size: ClassVar[int] = 49
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
     _reserved_flags_value: ClassVar[bytes] = b'\x00'
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> ReadRequest:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> ReadRequest:
         body_bytes: bytes = data[len(header):]
 
         try:

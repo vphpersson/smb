@@ -1,14 +1,14 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
-from typing import Tuple, Iterable, Optional
+from typing import Tuple, Iterable, Optional, ClassVar
 from abc import ABC
 from struct import unpack as struct_unpack, pack as struct_pack
 from secrets import token_bytes as secrets_token_bytes
 
 from smb.v2.smbv2_header import SMBv2Header, SMB202SyncHeader, SMB210SyncHeader, SMB300SyncHeader, \
     SMB302SyncHeader, SMB311SyncHeader, SMBv2Command, SMBv2Flag
-from smb.v2.smbv2_message import SMBv2Message
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
 from smb.v2.dialect import Dialect
 from smb.v2.security_mode import SecurityMode
 from smb.v2.capabilities import CapabilitiesFlag
@@ -17,21 +17,25 @@ from smb.v2.negotiate_context import NegotiateContextList, PreauthIntegrityCapab
     NetnameNegotiateContextIdContext
 from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateRequestError,\
     NoNegotiateDialectsError, NegotiateRequestCapabilitiesNotEmpty, NotImplementedNegotiateRequestError
+from smb.smb_message import SMBRequestMessage
 
 
+# TODO: Is this missing `structure_size`?
 @dataclass
-class NegotiateRequest(SMBv2Message, ABC):
+@register_smbv2_message
+class NegotiateRequest(SMBv2Message, SMBRequestMessage, ABC):
 
     dialects: Tuple[Dialect, ...]
     security_mode: SecurityMode
     client_guid: UUID
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_NEGOTIATE
 
     @property
     def dialect_count(self) -> int:
         return len(self.dialects)
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> NegotiateRequest:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> NegotiateRequest:
 
         body_data: bytes = data[len(header):]
 

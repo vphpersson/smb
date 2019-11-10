@@ -3,18 +3,21 @@ from dataclasses import dataclass
 from typing import ClassVar
 from struct import pack as struct_pack, unpack as struct_unpack
 
-from smb.v2.smbv2_message import SMBv2Message
-from smb.v2.smbv2_header import SMBv2Header
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedReadResponseError, \
     NonEmptyReadResponseReservedValueError, NonEmptyReadResponseReserved2ValueError
+from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
-class ReadResponse(SMBv2Message):
+@register_smbv2_message
+class ReadResponse(SMBv2Message, SMBResponseMessage):
     buffer: bytes
     data_remaining_length: int
 
     structure_size: ClassVar[int] = 17
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
     _reserved: ClassVar[bytes] = b'\x00'
     _reserved_2: ClassVar[bytes] = 4 * b'\x00'
 
@@ -23,7 +26,7 @@ class ReadResponse(SMBv2Message):
         return len(self.buffer)
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> ReadResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> ReadResponse:
 
         body_data = data[len(header):]
 

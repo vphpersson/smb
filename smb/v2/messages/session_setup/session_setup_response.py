@@ -3,8 +3,9 @@ from enum import IntEnum
 from struct import unpack as struct_unpack
 from typing import ClassVar
 
-from smb.v2.smbv2_message import SMBv2Message
-from smb.v2.smbv2_header import SMBv2Header
+from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
+from smb.smb_message import SMBResponseMessage
 
 
 class SessionFlag(IntEnum):
@@ -15,14 +16,16 @@ class SessionFlag(IntEnum):
 
 
 @dataclass
-class SessionSetupResponse(SMBv2Message):
+@register_smbv2_message
+class SessionSetupResponse(SMBv2Message, SMBResponseMessage):
     session_flags: SessionFlag
     security_buffer: bytes
 
     structure_size: ClassVar[int] = 9
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: SMBv2Header):
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header):
         body_data: bytes = data[len(header):]
 
         cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
@@ -36,8 +39,10 @@ class SessionSetupResponse(SMBv2Message):
             security_buffer=data[security_buffer_offset:security_buffer_offset+security_buffer_length]
         )
 
+    # TODO: Implement.
     def __bytes__(self) -> bytes:
         ...
 
+    # TODO: Implement.
     def __len__(self) -> int:
         ...

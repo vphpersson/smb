@@ -453,7 +453,12 @@ class SMBv2Connection(SMBConnection):
             # TODO: Use proper exception.
             raise ValueError
 
-        # TODO: Look at status?
+        if not isinstance(session_setup_response_2.header, SMB2XSyncHeader):
+            raise NotImplementedError
+
+        if session_setup_response_2.header.status.real_status is not Status.STATUS_SUCCESS:
+            # TODO: Use proper exception.
+            raise ValueError
 
         neg_token_resp_2 = NegTokenResp.from_bytes(data=session_setup_response_2.security_buffer)
         if neg_token_resp_2.neg_state is not NegTokenRespNegState.ACCEPT_COMPLETE:

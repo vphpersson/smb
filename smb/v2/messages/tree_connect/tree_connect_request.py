@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Type
 from abc import ABC
 from enum import IntFlag, IntEnum
 from struct import pack as struct_pack, unpack as struct_unpack
@@ -59,7 +59,10 @@ class RemotedIdentityTreeConnectContext(TreeConnectRequestExtension):
 @register_smbv2_message
 class TreeConnectRequest(SMBv2Message, SMBRequestMessage, ABC):
     structure_size: ClassVar[int] = 9
+
     _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
+    _dialect_to_class: ClassVar[Dialect, Type[TreeConnectRequest]] = {}
+    _dialect: ClassVar[Dialect] = NotImplemented
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> TreeConnectRequest:
@@ -76,16 +79,10 @@ class TreeConnectRequest(SMBv2Message, SMBRequestMessage, ABC):
             path=data[path_offset:path_offset + path_length].decode(encoding='utf-16-le')
         )
 
-        if isinstance(header, (SMB202SyncHeader, SMB202AsyncHeader)):
-            return TreeConnectRequest202(**tree_connect_base_kwargs)
-        elif isinstance(header, (SMB210SyncHeader, SMB210AsyncHeader)):
-            return TreeConnectRequest210(**tree_connect_base_kwargs)
-        elif isinstance(header, (SMB300SyncHeader, SMB300AsyncHeader)):
-            return TreeConnectRequest300(**tree_connect_base_kwargs)
-        elif isinstance(header, (SMB302SyncHeader, SMB302AsyncHeader)):
-            return TreeConnectRequest302(**tree_connect_base_kwargs)
-        elif isinstance(header, (SMB311SyncHeader, SMB311AsyncHeader)):
-            raise NotImplementedError
+        if Dialect.SMB_2_0_2 <= header.header_dialect < Dialect.SMB_3_1_1:
+            return cls._dialect_to_class[header.header_dialect](**tree_connect_base_kwargs)
+        elif header.header_dialect is Dialect.SMB_3_1_1:
+            raise NotImplemented
             # return TreeConnect311(
             #     **tree_connect_base_kwargs,
             #     flags=TreeConnectFlag.from_mask(mask=struct_unpack('<H', body_data[2:4])[0])
@@ -118,7 +115,7 @@ class TreeConnectRequest(SMBv2Message, SMBRequestMessage, ABC):
             num_credits=num_request_credits,
         )
 
-        # # TODO: Not sure about this value.
+        # TODO: Not sure about this value.
         channel_sequence = b''
 
         if dialect is Dialect.SMB_3_1_1:
@@ -211,3 +208,11 @@ class TreeConnectRequest302(TreeConnectRequest):
 class TreeConnectRequest311(TreeConnectRequest):
     flags: TreeConnectFlag
 
+
+TreeConnectRequest._dialect_to_class = {
+    Dialect.SMB_2_0_2: TreeConnectRequest202,
+    Dialect.SMB_2_1: TreeConnectRequest210,
+    Dialect.SMB_3_0: TreeConnectRequest300,
+    Dialect.SMB_3_0_2: TreeConnectRequest302,
+    Dialect.SMB_3_1_1: TreeConnectRequest311
+}

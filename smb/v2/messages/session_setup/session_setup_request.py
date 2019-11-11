@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
 from struct import unpack as struct_unpack, pack as struct_pack
-from typing import Optional, ClassVar
+from typing import Optional, ClassVar, Type
 
 from smb.v2.smbv2_header import SMBv2Header, SMB202SyncHeader, SMB210SyncHeader, SMB300SyncHeader, \
     SMB302SyncHeader, SMB311SyncHeader, SMBv2Command, SMBv2Flag
@@ -30,7 +30,7 @@ class SessionSetupRequest(SMBv2Message, SMBRequestMessage):
 
     structure_size: ClassVar[int] = 25
     _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
-    _channel: ClassVar[bytes] = 4 * b'\x00'
+    _reserved_channel: ClassVar[bytes] = 4 * b'\x00'
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header):
@@ -42,7 +42,7 @@ class SessionSetupRequest(SMBv2Message, SMBRequestMessage):
         except IncorrectStructureSizeError as e:
             raise MalformedSessionSetupRequestError(str(e)) from e
 
-        if body_data[8:12] != cls._channel:
+        if body_data[8:12] != cls._reserved_channel:
             # TODO: Use proper exception.
             raise ValueError
 
@@ -62,13 +62,14 @@ class SessionSetupRequest(SMBv2Message, SMBRequestMessage):
     def make_session_setup_request(
         cls,
         dialect: Dialect,
-        # TODO: Support async headers...
         session_id: int,
         security_mode: SecurityMode,
         security_buffer: bytes,
         capabilities: Optional[CapabilitiesFlag] = None,
         session_flag_binding: bool = False,
-        num_credits: int = 8192
+        num_credits: int = 8192,
+        # TODO: Support async headers...
+        async_status: bool = False
     ) -> SessionSetupRequest:
 
         headers_base_kwargs = dict(
@@ -81,28 +82,14 @@ class SessionSetupRequest(SMBv2Message, SMBRequestMessage):
         credit_charge = 1
         channel_sequence = b''
 
-        if dialect == Dialect.SMB_2_0_2:
-            header = SMB202SyncHeader(**headers_base_kwargs, status=None)
-        elif dialect == Dialect.SMB_2_1:
-            header = SMB210SyncHeader(**headers_base_kwargs, credit_charge=credit_charge, status=None)
-        elif dialect == Dialect.SMB_3_0:
-            header = SMB300SyncHeader(
-                **headers_base_kwargs,
-                credit_charge=credit_charge,
-                channel_sequence=channel_sequence
-            )
-        elif dialect == Dialect.SMB_3_0_2:
-            header = SMB302SyncHeader(
-                **headers_base_kwargs,
-                credit_charge=credit_charge,
-                channel_sequence=channel_sequence
-            )
-        elif dialect == Dialect.SMB_3_1_1:
-            header = SMB311SyncHeader(
-                **headers_base_kwargs,
-                credit_charge=credit_charge,
-                channel_sequence=channel_sequence
-            )
+        header_class: Type[SMBv2Header] = SMBv2Header.dialect_and_async_status_to_class[(dialect, async_status)]
+
+        if dialect is Dialect.SMB_2_0_2:
+            header = header_class(**headers_base_kwargs, status=None)
+        elif dialect is Dialect.SMB_2_1:
+            header = header_class(**headers_base_kwargs, credit_charge=credit_charge, status=None)
+        elif dialect in {Dialect.SMB_3_0, Dialect.SMB_3_0_2, Dialect.SMB_3_1_1}:
+            header = header_class(**headers_base_kwargs, credit_charge=credit_charge, channel_sequence=channel_sequence)
         else:
             # TODO Use proper exception.
             raise ValueError
@@ -125,7 +112,7 @@ class SessionSetupRequest(SMBv2Message, SMBRequestMessage):
             struct_pack('<B', self.flags.value),
             struct_pack('<B', self.security_mode.value),
             struct_pack('<I', self.capabilities.to_mask()),
-            self._channel,
+            self._reserved_channel,
             struct_pack('<H', len(self.header) + 24),
             struct_pack('<H', len(self.security_buffer)),
             self.previous_session_id,

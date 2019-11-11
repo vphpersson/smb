@@ -26,6 +26,7 @@ class ReadRequestFlagMask(IntFlag):
 ReadRequestFlag = make_mask_class(ReadRequestFlagMask, prefix='SMB2_READFLAG_')
 
 
+# TODO: Move somewhere else, as it is used by other messages also.
 class ReadRequestChannel(IntEnum):
     SMB2_CHANNEL_NONE = 0x00000000,
     SMB2_CHANNEL_RDMA_V1 = 0x00000001,

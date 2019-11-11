@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from enum import IntEnum, IntFlag
 from dataclasses import dataclass
 from struct import unpack as struct_unpack, pack as struct_pack
-from typing import Dict, Union, Optional, ClassVar
+from typing import Dict, Union, Optional, ClassVar, Tuple, Type
 
 from smb.protocol_identifier import ProtocolIdentifier
 from smb.smb_header import SMBHeader
@@ -52,9 +52,13 @@ SMBv2Flag = make_mask_class(SMBv2FlagMask, prefix='SMB2_FLAGS_')
 class SMBv2Header(SMBHeader, ABC):
     structure_size: ClassVar[int] = 64
     protocol_identifier: ClassVar[ProtocolIdentifier] = ProtocolIdentifier.SMB_VERSION_2
+    _reserved: ClassVar[bytes] = 4 * b'\x00'
+
+    header_dialect: ClassVar[Dialect] = NotImplemented
+    dialect_and_async_status_to_class: ClassVar[Dict[Tuple[Dialect, bool], Type[SMBv2Header]]] = {}
+
     EMPTY_SIGNATURE: ClassVar[bytes] = 16 * b'\x00'
     EMPTY_STATUS: ClassVar[bytes] = 4 * b'\x00'
-    _reserved: ClassVar[bytes] = 4 * b'\x00'
 
     command: SMBv2Command
     session_id: int = 0
@@ -82,10 +86,15 @@ class SMBv2Header(SMBHeader, ABC):
         )
 
     @classmethod
+    def from_dialect(cls, dialect: Dialect, async_status: bool, **header_kwargs) -> SMBv2Header:
+        return cls.dialect_and_async_status_to_class[(dialect, async_status)](**header_kwargs)
+
+    @classmethod
     def _from_bytes(cls, data: bytes, dialect: Dialect = Dialect.SMB_2_1) -> SMBv2Header:
 
         flags = SMBv2Flag.from_mask(struct_unpack('<I', data[16:20])[0])
         if flags.async_command:
+            # TODO: Implement.
             ...
         else:
             return SMBv2SyncHeader._from_bytes(data=data, dialect=dialect)
@@ -108,13 +117,13 @@ class SMBv2SyncHeader(SMBv2Header):
         base_kwargs: Dict[str, Union[bytes, int]] = super()._base_from_bytes(data)
         base_kwargs['tree_id'] = struct_unpack('<I', data[36:40])[0]
 
-        if dialect == Dialect.SMB_2_0_2:
+        if dialect is Dialect.SMB_2_0_2:
             return SMB202SyncHeader(
                 status=NTSTATUS.from_bytes(data=data[8:12]) if data[8:12] != cls.EMPTY_STATUS else None,
                 **base_kwargs
             )
 
-        credit_charge = struct_unpack('<H', data[6:8])[0]
+        credit_charge: int = struct_unpack('<H', data[6:8])[0]
 
         # TODO Not sure if this is the case which should be used when the wildcard dialect is used
         #   but it appears to be used in the protocol examples in the docs (credit charge present)
@@ -125,25 +134,10 @@ class SMBv2SyncHeader(SMBv2Header):
                 **base_kwargs
             )
 
-        # TODO: Figure out what type this should be.
-        channel_sequence = data[8:10]
+        channel_sequence: bytes = data[8:10]
 
-        if dialect is Dialect.SMB_3_0:
-            return SMB300SyncHeader(
-                credit_charge=credit_charge,
-                channel_sequence=channel_sequence,
-                **base_kwargs
-            )
-
-        if dialect is Dialect.SMB_3_0_2:
-            return SMB302SyncHeader(
-                credit_charge=credit_charge,
-                channel_sequence=channel_sequence,
-                **base_kwargs
-            )
-
-        if dialect is Dialect.SMB_3_1_1:
-            return SMB311SyncHeader(
+        if dialect in {Dialect.SMB_3_0, Dialect.SMB_3_0_2, Dialect.SMB_3_1_1}:
+            return cls.dialect_and_async_status_to_class[(dialect, False)](
                 credit_charge=credit_charge,
                 channel_sequence=channel_sequence,
                 **base_kwargs
@@ -181,12 +175,13 @@ class SMB2XSyncHeader(SMBv2SyncHeader, ABC):
 
 @dataclass
 class SMB202SyncHeader(SMB2XSyncHeader):
-    pass
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_2_0_2
 
 
 @dataclass
 class SMB210SyncHeader(SMB2XSyncHeader):
     credit_charge: int = 1
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_2_1
 
 
 @dataclass
@@ -197,21 +192,21 @@ class SMB3XSyncHeader(SMBv2SyncHeader, ABC):
 
 @dataclass
 class SMB300SyncHeader(SMB3XSyncHeader):
-    pass
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_3_0
 
 
 @dataclass
 class SMB302SyncHeader(SMB3XSyncHeader):
-    pass
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_3_0_2
 
 
 @dataclass
 class SMB311SyncHeader(SMB3XSyncHeader):
-    pass
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_3_1_1
 
 
 @dataclass
-class SMBv2AsyncHeader(SMBv2Header):
+class SMBv2AsyncHeader(SMBv2Header, ABC):
     async_id: bytes = 8 * b'\x00'
 
     @classmethod
@@ -220,7 +215,7 @@ class SMBv2AsyncHeader(SMBv2Header):
         base_kwargs: Dict[str, Union[bytes, int]] = super()._base_from_bytes(data)
         base_kwargs['async_id'] = data[36:44]
 
-        if dialect == Dialect.SMB_2_0_2:
+        if dialect is Dialect.SMB_2_0_2:
             return SMB202AsyncHeader(
                 status=NTSTATUS.from_bytes(data=struct_unpack('<H', data[8:12])[0]),
                 **base_kwargs
@@ -228,32 +223,17 @@ class SMBv2AsyncHeader(SMBv2Header):
 
         credit_charge = struct_unpack('<I', data[6:8])[0]
 
-        if dialect == Dialect.SMB_2_1:
+        if dialect is Dialect.SMB_2_1:
             return SMB210AsyncHeader(
                 status=NTSTATUS.from_bytes(data=struct_unpack('<H', data[8:12])[0]),
                 credit_charge=credit_charge,
                 **base_kwargs
             )
 
-        # TODO: Figure out what type this should be.
-        channel_sequence = data[8:10]
+        channel_sequence: bytes = data[8:10]
 
-        if dialect == Dialect.SMB_3_0:
-            return SMB300AsyncHeader(
-                credit_charge=credit_charge,
-                channel_sequence=channel_sequence,
-                **base_kwargs
-            )
-
-        if dialect == Dialect.SMB_3_0_2:
-            return SMB302AsyncHeader(
-                credit_charge=credit_charge,
-                channel_sequence=channel_sequence,
-                **base_kwargs
-            )
-
-        if dialect == Dialect.SMB_3_1_1:
-            return SMB311AsyncHeader(
+        if dialect in {Dialect.SMB_3_0, Dialect.SMB_3_0_2, Dialect.SMB_3_1_1}:
+            cls.dialect_and_async_status_to_class[(dialect, True)](
                 credit_charge=credit_charge,
                 channel_sequence=channel_sequence,
                 **base_kwargs
@@ -261,29 +241,51 @@ class SMBv2AsyncHeader(SMBv2Header):
 
 
 @dataclass
-class SMB202AsyncHeader(SMBv2SyncHeader):
+class SMB2XAsyncHeader(SMBv2AsyncHeader, ABC):
     status: Optional[NTSTATUS] = None
 
 
 @dataclass
-class SMB210AsyncHeader(SMBv2SyncHeader):
-    status: Optional[NTSTATUS] = None
-    credit_charge: int = 1
+class SMB202AsyncHeader(SMB2XAsyncHeader):
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_2_0_2
 
 
 @dataclass
-class SMB300AsyncHeader(SMBv2SyncHeader):
+class SMB210AsyncHeader(SMB2XAsyncHeader):
+    credit_charge: int = 1
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_2_1
+
+
+@dataclass
+class SMB3XAsyncHeader(SMBv2AsyncHeader, ABC):
     credit_charge: int = 1
     channel_sequence: bytes = b'\x00\x00'
 
 
 @dataclass
-class SMB302AsyncHeader(SMBv2SyncHeader):
-    credit_charge: int = 1
-    channel_sequence: bytes = b'\x00\x00'
+class SMB300AsyncHeader(SMB3XAsyncHeader):
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_3_0
 
 
 @dataclass
-class SMB311AsyncHeader(SMBv2SyncHeader):
-    credit_charge: int = 1
-    channel_sequence: bytes = b'\x00\x00'
+class SMB302AsyncHeader(SMB3XAsyncHeader):
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_3_0_2
+
+
+@dataclass
+class SMB311AsyncHeader(SMB3XAsyncHeader):
+    header_dialect: ClassVar[Dialect] = Dialect.SMB_3_1_1
+
+
+SMBv2Header.dialect_and_async_status_to_class = {
+    (Dialect.SMB_2_0_2, False): SMB202SyncHeader,
+    (Dialect.SMB_2_0_2, True): SMB202AsyncHeader,
+    (Dialect.SMB_2_1, False): SMB210SyncHeader,
+    (Dialect.SMB_2_1, True): SMB210AsyncHeader,
+    (Dialect.SMB_3_0, False): SMB300SyncHeader,
+    (Dialect.SMB_3_0, True): SMB300AsyncHeader,
+    (Dialect.SMB_3_0_2, False): SMB302SyncHeader,
+    (Dialect.SMB_3_0_2, True): SMB302AsyncHeader,
+    (Dialect.SMB_3_1_1, False): SMB311SyncHeader,
+    (Dialect.SMB_3_1_1, True): SMB311AsyncHeader
+}

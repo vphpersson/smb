@@ -1,19 +1,18 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import ClassVar, Dict, Any
+from typing import ClassVar, Dict, Any, Type
 from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntEnum, IntFlag
 from abc import ABC
 
 from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
-from smb.v2.smbv2_header import SMBv2Header, SMB202SyncHeader, SMB202AsyncHeader, SMB210SyncHeader, \
-    SMB210AsyncHeader, SMB300SyncHeader, SMB300AsyncHeader, SMB302SyncHeader, SMB302AsyncHeader, SMB311SyncHeader, \
-    SMB311AsyncHeader, SMBv2Command
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedReadRequestError, InvalidReadRequestFlagError,\
     InvalidReadRequestChannelError, InvalidReadRequestReadChannelInfoOffsetError,\
     InvalidReadRequestReadChannelLengthError
 from smb.v2.file_id import FileId
 from smb.smb_message import SMBRequestMessage
+from smb.v2.dialect import Dialect
 
 from msdsalgs.utils import make_mask_class
 
@@ -35,6 +34,15 @@ class ReadRequestChannel(IntEnum):
 @dataclass
 @register_smbv2_message
 class ReadRequest(SMBv2Message, SMBRequestMessage, ABC):
+    structure_size: ClassVar[int] = 49
+    _reserved_flags_value: ClassVar[bytes] = b'\x00'
+    _reserved_channel_value: ClassVar[bytes] = 4 * b'\x00'
+    _reserved_read_channel_offset: ClassVar[bytes] = 2 * b'\x00'
+    _reserved_read_channel_length: ClassVar[bytes] = 2 * b'\x00'
+
+    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
+    _dialect_to_class: ClassVar[Dict[Dialect, Type[ReadRequest]]] = {}
+    _dialect: ClassVar[Dialect] = NotImplemented
 
     padding: int
     length: int
@@ -42,10 +50,6 @@ class ReadRequest(SMBv2Message, SMBRequestMessage, ABC):
     file_id: FileId
     minimum_count: int
     remaining_bytes: int
-
-    structure_size: ClassVar[int] = 49
-    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
-    _reserved_flags_value: ClassVar[bytes] = b'\x00'
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> ReadRequest:
@@ -65,61 +69,53 @@ class ReadRequest(SMBv2Message, SMBRequestMessage, ABC):
             remaining_bytes=struct_unpack('<I', body_bytes[40:44])[0]
         )
 
-        flags_value: int = struct_unpack('<B', body_bytes[3:4])[0]
-        channel_value: int = struct_unpack('<I', body_bytes[36:40])[0]
-        read_channel_info_offset: int = struct_unpack('<H', body_bytes[44:46])[0]
-        read_channel_info_length: int = struct_unpack('<H', body_bytes[46:48])[0]
+        flags_raw: bytes = body_bytes[3:4]
+        channel_raw: bytes = body_bytes[36:40]
+        read_channel_info_offset_raw: bytes = body_bytes[44:46]
+        read_channel_info_length_raw: bytes = body_bytes[46:48]
 
-        if isinstance(header, (SMB202SyncHeader, SMB202AsyncHeader)):
-            if flags_value != 0x00:
+        if header.header_dialect in {Dialect.SMB_2_0_2, Dialect.SMB_2_1}:
+            if flags_raw != cls._reserved_flags_value:
                 raise InvalidReadRequestFlagError
 
-            if channel_value != 0x00:
+            if channel_raw != cls._reserved_channel_value:
                 raise InvalidReadRequestChannelError
 
-            if read_channel_info_offset != 0x00:
+            if read_channel_info_offset_raw != cls._reserved_read_channel_offset:
                 raise InvalidReadRequestReadChannelInfoOffsetError
 
-            if read_channel_info_length != 0x00:
+            if read_channel_info_length_raw != cls._reserved_read_channel_length:
                 raise InvalidReadRequestReadChannelLengthError
 
-            return ReadRequest202(header=header, **read_request_base_args)
+            return cls._dialect_to_class[header.header_dialect](header=header, **read_request_base_args)
 
-        if isinstance(header, (SMB210SyncHeader, SMB210AsyncHeader)):
-            if flags_value != 0x00:
+        read_channel_info_offset: int = struct_unpack('<H', read_channel_info_offset_raw)[0]
+        read_channel_info_length: int = struct_unpack('<H', read_channel_info_length_raw)[0]
+        read_channel_buffer: bytes = data[read_channel_info_offset:read_channel_info_offset + read_channel_info_length]
+        channel = ReadRequestChannel(struct_unpack('<I', channel_raw)[0])
+
+        if header.header_dialect is Dialect.SMB_3_0:
+            if flags_raw != cls._reserved_flags_value:
                 raise InvalidReadRequestFlagError
-
-            if channel_value != 0x00:
-                raise InvalidReadRequestChannelError
-
-            return ReadRequest210(header=header, **read_request_base_args)
-
-        read_channel_buffer = data[read_channel_info_offset:read_channel_info_offset + read_channel_info_length]
-
-        if isinstance(header, (SMB300SyncHeader, SMB300AsyncHeader)):
-            if flags_value != 0x00:
-                raise InvalidReadRequestFlagError
-            return ReadRequest300(header=header, **read_request_base_args, read_channel_buffer=read_channel_buffer)
+            return ReadRequest300(
+                header=header,
+                **read_request_base_args,
+                read_channel_buffer=read_channel_buffer,
+                channel=channel
+            )
 
         try:
-            flags = ReadRequestFlag.from_mask(flags_value)
+            flags = ReadRequestFlag.from_mask(struct_unpack('<B', body_bytes[3:4])[0])
         except ValueError as e:
             raise InvalidReadRequestFlagError from e
 
-        if isinstance(header, (SMB302SyncHeader, SMB302AsyncHeader)):
-            return ReadRequest302(
+        if header.header_dialect in {Dialect.SMB_3_0_2, Dialect.SMB_3_1_1}:
+            return cls._dialect_to_class[header.header_dialect](
                 header=header,
                 **read_request_base_args,
                 read_channel_buffer=read_channel_buffer,
-                flags=flags
-            )
-
-        if isinstance(header, (SMB311SyncHeader, SMB311AsyncHeader)):
-            return ReadRequest311(
-                header=header,
-                **read_request_base_args,
-                read_channel_buffer=read_channel_buffer,
-                flags=flags
+                flags=flags,
+                channel=channel
             )
 
         # TODO: Raise proper exception.
@@ -151,9 +147,6 @@ class ReadRequest(SMBv2Message, SMBRequestMessage, ABC):
 
 @dataclass
 class ReadRequest2X(ReadRequest, ABC):
-    _reserved_channel_value: ClassVar[bytes] = 4 * b'\x00'
-    _reserved_read_channel_offset: ClassVar[bytes] = 2 * b'\x00'
-    _reserved_read_channel_length: ClassVar[bytes] = 2 * b'\x00'
 
     def __len__(self) -> int:
         return len(self.header) + self.structure_size
@@ -170,12 +163,12 @@ class ReadRequest2X(ReadRequest, ABC):
 
 @dataclass
 class ReadRequest202(ReadRequest2X):
-    pass
+    _dialect: ClassVar[Dialect] = Dialect.SMB_2_0_2
 
 
 @dataclass
 class ReadRequest210(ReadRequest2X):
-    pass
+    _dialect: ClassVar[Dialect] = Dialect.SMB_2_1
 
 
 @dataclass
@@ -190,6 +183,7 @@ class ReadRequest3X(ReadRequest, ABC):
 
 @dataclass
 class ReadRequest300(ReadRequest3X):
+    _dialect: ClassVar[Dialect] = Dialect.SMB_3_0
 
     def __bytes__(self) -> bytes:
         return super()._to_bytes(
@@ -203,6 +197,7 @@ class ReadRequest300(ReadRequest3X):
 
 @dataclass
 class ReadRequest302(ReadRequest3X):
+    _dialect: ClassVar[Dialect] = Dialect.SMB_3_0_2
     flags: ReadRequestFlag
 
     def __bytes__(self) -> bytes:
@@ -217,6 +212,7 @@ class ReadRequest302(ReadRequest3X):
 
 @dataclass
 class ReadRequest311(ReadRequest3X):
+    _dialect: ClassVar[Dialect] = Dialect.SMB_3_1_1
     flags: ReadRequestFlag
 
     def __bytes__(self) -> bytes:
@@ -227,3 +223,12 @@ class ReadRequest311(ReadRequest3X):
             read_channel_length_bytes_value=struct_pack('<H', len(self.read_channel_buffer)),
             read_channel_buffer=self.read_channel_buffer
         )
+
+
+ReadRequest._dialect_to_class = {
+    Dialect.SMB_2_0_2: ReadRequest202,
+    Dialect.SMB_2_1: ReadRequest210,
+    Dialect.SMB_3_0: ReadRequest300,
+    Dialect.SMB_3_0_2: ReadRequest302,
+    Dialect.SMB_3_1_1: ReadRequest311
+}

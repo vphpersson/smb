@@ -1,20 +1,16 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
-from typing import Tuple, Iterable, Optional, ClassVar
+from typing import Tuple, Optional, ClassVar
 from abc import ABC
 from struct import unpack as struct_unpack, pack as struct_pack
-from secrets import token_bytes as secrets_token_bytes
 
-from smb.v2.smbv2_header import SMBv2Header, SMB202SyncHeader, SMB210SyncHeader, SMB300SyncHeader, \
-    SMB302SyncHeader, SMB311SyncHeader, SMBv2Command, SMBv2Flag
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
 from smb.v2.dialect import Dialect
 from smb.v2.security_mode import SecurityMode
 from smb.v2.capabilities import CapabilitiesFlag
-from smb.v2.negotiate_context import NegotiateContextList, PreauthIntegrityCapabilitiesContext, HashAlgorithm, \
-    EncryptionCapabilitiesContext, Cipher, CompressionCapabilitiesContext, CompressionAlgorithm, \
-    NetnameNegotiateContextIdContext
+from smb.v2.negotiate_context import NegotiateContextList
 from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateRequestError,\
     NoNegotiateDialectsError, NegotiateRequestCapabilitiesNotEmpty, NotImplementedNegotiateRequestError
 from smb.smb_message import SMBRequestMessage
@@ -113,128 +109,6 @@ class NegotiateRequest(SMBv2Message, SMBRequestMessage, ABC):
             raise NotImplementedNegotiateRequestError(
                 f'Expected `dialects` to include one of SMB_2_1 and SMB_2_0_2, observed {dialects}.'
             )
-
-    @classmethod
-    def make_negotiate_request(
-        cls,
-        dialects: Iterable[Dialect],
-        client_guid: UUID,
-        security_mode: SecurityMode,
-        supported_ciphers: Optional[Iterable[Cipher]] = None,
-        supported_compression_algorithms: Optional[Iterable[CompressionAlgorithm]] = None,
-        net_name: Optional[str] = None,
-        capabilities: Optional[CapabilitiesFlag] = None,
-        salt: Optional[bytes] = None
-    ):
-        """
-        Make an SMBv2 Negotiate request message.
-
-        :param dialects: The supported dialects.
-        :param client_guid: The GUID of the SMB client.
-        :param security_mode:
-        :param supported_ciphers:
-        :param supported_compression_algorithms:
-        :param net_name:
-        :param capabilities:
-        :param salt:
-        :return: An SMBv2 Negotiate request message.
-        """
-
-        dialects = tuple(dialects)
-        capabilities: CapabilitiesFlag = capabilities if capabilities is not None else CapabilitiesFlag()
-
-        header_base_kwargs = dict(
-            command=SMBv2Command.SMB2_NEGOTIATE,
-            flags=SMBv2Flag(),
-            message_id=None,
-            session_id=0,
-            num_credits=31,
-            next_command_offset=0,
-            tree_id=0,
-            signature=16 * b'\x00'
-        )
-
-        message_base_kwargs = dict(
-            dialects=dialects,
-            security_mode=security_mode,
-            client_guid=client_guid
-        )
-
-        credit_charge = 1
-        # TODO: Not sure about this value.
-        channel_sequence = b''
-
-        if Dialect.SMB_3_1_1 in dialects:
-            negotiate_context_list = NegotiateContextList((
-                PreauthIntegrityCapabilitiesContext(
-                    hash_algorithms=(HashAlgorithm.SHA_512,),
-                    salt=salt if salt is not None else secrets_token_bytes(nbytes=32)
-                )
-            ))
-
-            if supported_ciphers:
-                negotiate_context_list.append(EncryptionCapabilitiesContext(ciphers=tuple(supported_ciphers)))
-
-            if supported_compression_algorithms:
-                negotiate_context_list.append(
-                    CompressionCapabilitiesContext(
-                        compression_algorithms=tuple(supported_compression_algorithms)
-                    )
-                )
-
-            if net_name:
-                negotiate_context_list.append(NetnameNegotiateContextIdContext(netname=net_name))
-
-            return SMB311NegotiateRequest(
-                header=SMB311SyncHeader(
-                    **header_base_kwargs,
-                    credit_charge=credit_charge,
-                    channel_sequence=channel_sequence
-                ),
-                **message_base_kwargs,
-                negotiate_context_list=negotiate_context_list,
-                capabilities=capabilities
-            )
-        elif Dialect.SMB_3_0_2 in dialects:
-            return SMB302NegotiateRequest(
-                header=SMB302SyncHeader(
-                    **header_base_kwargs,
-                    credit_charge=credit_charge,
-                    channel_sequence=channel_sequence
-                ),
-                **message_base_kwargs,
-                capabilities=capabilities
-            )
-        elif Dialect.SMB_3_0 in dialects:
-            return SMB300NegotiateRequest(
-                header=SMB300SyncHeader(
-                    **header_base_kwargs,
-                    credit_charge=credit_charge,
-                    channel_sequence=channel_sequence
-                ),
-                **message_base_kwargs,
-                capabilities=capabilities
-            )
-        elif Dialect.SMB_2_1 in dialects:
-            return SMB210NegotiateRequest(
-                header=SMB210SyncHeader(
-                    **header_base_kwargs,
-                    credit_charge=credit_charge,
-                    status=None
-                ),
-                **message_base_kwargs
-            )
-        elif Dialect.SMB_2_0_2 in dialects:
-            return SMB202NegotiateRequest(
-                header=SMB202SyncHeader(
-                    **header_base_kwargs,
-                    status=None
-                ),
-                **message_base_kwargs
-            )
-        else:
-            # TODO: Use proper exception.
-            raise ValueError
 
     def __bytes__(self) -> bytes:
         capabilities: Optional[CapabilitiesFlag] = (

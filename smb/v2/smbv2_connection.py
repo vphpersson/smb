@@ -257,10 +257,13 @@ class SMBv2Connection(SMBConnection):
         :return: None
         """
 
-        # TODO: I should reference supported ciphers, etc. here also.
+        # TODO: In future, I want to support more dialects.
         negotiate_response: SMBv2Message = await (
             await self._send_message(
-                request_message=NegotiateRequest.make_negotiate_request(
+                NegotiateRequest(
+                    header=SMB210SyncHeader(
+                        command=SMBv2Command.SMB2_NEGOTIATE
+                    ),
                     dialects=(PREFERRED_DIALECT,),
                     client_guid=CLIENT_GUID,
                     security_mode=SECURITY_MODE
@@ -384,10 +387,12 @@ class SMBv2Connection(SMBConnection):
 
         session_setup_response_1: SMBv2Message = await (
             await self._send_message(
-                SessionSetupRequest.make_session_setup_request(
-                    dialect=self.negotiated_details.dialect,
-                    session_id=0,
-                    # TODO: Not sure what security mode should be set here.
+                SessionSetupRequest(
+                    header=SMBv2Header.from_dialect(
+                        dialect=self.negotiated_details.dialect,
+                        async_status=False,
+                        command=SMBv2Command.SMB2_SESSION_SETUP
+                    ),
                     security_mode=SECURITY_MODE,
                     security_buffer=bytes(
                         NegTokenInit(
@@ -429,11 +434,14 @@ class SMBv2Connection(SMBConnection):
 
         session_setup_response_2: SMBv2Message = await (
             await self._send_message(
-                request_message=SessionSetupRequest.make_session_setup_request(
-                    dialect=self.negotiated_details.dialect,
-                    session_id=smb_session.session_id,
+                request_message=SessionSetupRequest(
+                    header=SMBv2Header.from_dialect(
+                        dialect=self.negotiated_details.dialect,
+                        async_status=False,
+                        command=SMBv2Command.SMB2_SESSION_SETUP,
+                        session_id=smb_session.session_id
+                    ),
                     security_mode=SECURITY_MODE,
-                    # TODO: I would like to set `mech_list_mic` also.
                     security_buffer=bytes(
                         NegTokenResp(
                             # A serialized NTLM Authenticate message.

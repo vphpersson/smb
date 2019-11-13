@@ -125,7 +125,7 @@ class WriteRequest(SMBv2Message, SMBRequestMessage, ABC):
             struct_pack('<Q', self.offset),
             bytes(self.file_id),
             channel_bytes if channel_bytes is not None else self._reserved_channel,
-            self.remaining_bytes,
+            struct_pack('<I', self.remaining_bytes),
             struct_pack('<H', write_channel_info_offset),
             struct_pack('<H', write_channel_info_length),
             struct_pack('<I', self.flags.to_mask()),

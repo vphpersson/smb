@@ -43,6 +43,8 @@ from smb.v2.messages.tree_disconnect.tree_disconnect_request import TreeDisconne
 from smb.v2.messages.tree_disconnect.tree_disconnect_response import TreeDisconnectResponse
 from smb.v2.messages.logoff.logoff_request import LogoffRequest
 from smb.v2.messages.logoff.logoff_response import LogoffResponse
+from smb.v2.messages.write.write_request import WriteRequest210, WriteFlag
+from smb.v2.messages.write.write_response import WriteResponse
 from smb.v2.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
     CompressionCapabilitiesContext, NetnameNegotiateContextIdContext
 from smb.v2.smbv2_header import SMBv2Header, SMB2XSyncHeader, SMBv2Command, SMB210SyncHeader
@@ -821,7 +823,7 @@ class SMBv2Connection(SMBConnection):
         self,
         session: SMBv2Session,
         tree_id: int,
-        file_id,
+        file_id: FileId,
         file_size: int,
         use_generator: bool = False
     ) -> Union[Awaitable[bytes], AsyncGenerator[bytes, None]]:
@@ -868,6 +870,48 @@ class SMBv2Connection(SMBConnection):
             return b''.join([chunk async for chunk in read_chunks()])
 
         return create_task(merge_read_chunks()) if not use_generator else read_chunks()
+
+    async def write(
+        self,
+        write_data: bytes,
+        file_id: FileId,
+        session: SMBv2Session,
+        tree_id: int,
+        offset: int = 0,
+        remaining_bytes: int = 0,
+        flags: WriteFlag = WriteFlag()
+    ) -> int:
+
+        # TODO: Support more dialects.
+        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
+            raise NotImplementedError
+
+        write_response: SMBv2Message = await (
+            await self._send_message(
+                request_message=WriteRequest210(
+                    header=SMB210SyncHeader(
+                        command=SMBv2Command.SMB2_WRITE,
+                        session_id=session.session_id,
+                        tree_id=tree_id,
+                        credit_charge=calculate_credit_charge(
+                            variable_payload_size=0,
+                            expected_maximum_response_size=SMBv2Header.structure_size + WriteResponse.structure_size
+                        )
+                    ),
+                    write_data=write_data,
+                    offset=offset,
+                    file_id=file_id,
+                    remaining_bytes=remaining_bytes,
+                    flags=flags
+                )
+            )
+        )
+
+        if not isinstance(write_response, WriteResponse):
+            # TODO: Use proper exception.
+            raise ValueError
+
+        return write_response.count
 
     async def query_directory(
         self,

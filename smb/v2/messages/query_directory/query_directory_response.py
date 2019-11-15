@@ -81,8 +81,8 @@ class QueryDirectoryResponse(SMBv2Message, SMBResponseMessage):
         output_buffer_offset: int = len(self.header) + self.structure_size - 1
         return bytes(self.header) + b''.join([
             struct_pack('<H', self.structure_size),
-            output_buffer_offset,
-            len(self._buffer),
+            struct_pack('<H', output_buffer_offset),
+            struct_pack('<I', len(self._buffer)),
             self._buffer
         ])
 

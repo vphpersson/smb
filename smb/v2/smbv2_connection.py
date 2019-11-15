@@ -45,6 +45,9 @@ from smb.v2.messages.logoff.logoff_request import LogoffRequest
 from smb.v2.messages.logoff.logoff_response import LogoffResponse
 from smb.v2.messages.write.write_request import WriteRequest210, WriteFlag
 from smb.v2.messages.write.write_response import WriteResponse
+from smb.v2.messages.change_notify.change_notify_request import ChangeNotifyRequest, CompletionFilterFlag, \
+    ChangeNotifyFlag
+from smb.v2.messages.change_notify.change_notify_response import ChangeNotifyResponse
 from smb.v2.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
     CompressionCapabilitiesContext, NetnameNegotiateContextIdContext
 from smb.v2.smbv2_header import SMBv2Header, SMB2XSyncHeader, SMBv2Command, SMB210SyncHeader
@@ -958,3 +961,40 @@ class SMBv2Connection(SMBConnection):
             return query_directory_response.file_id_full_directory_information()
         else:
             raise NotImplementedError
+
+    async def change_notify(
+        self,
+        file_id: FileId,
+        session: SMBV2Session,
+        tree_id: int,
+        completion_filter_flag: Optional[CompletionFilterFlag] = None,
+        watch_tree: bool = False
+    ):
+        if completion_filter_flag is None:
+            completion_filter_flag = CompletionFilterFlag()
+            completion_filter_flag.set_all()
+
+        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
+            raise NotImplementedError
+
+        # create_task(
+
+        r = await (
+            await self._send_message(
+                ChangeNotifyRequest(
+                    header=SMB210SyncHeader(
+                        command=SMBv2Command.SMB2_CHANGE_NOTIFY,
+                        session_id=session.session_id,
+                        tree_id=tree_id,
+                        # TODO: Arbitrary number. Reconsider.
+                        credit_charge=64
+                    ),
+                    flags=ChangeNotifyFlag(watch_tree=watch_tree),
+                    file_id=file_id,
+                    completion_filter=completion_filter_flag
+                )
+            )
+        )
+
+        print(r)
+        # )

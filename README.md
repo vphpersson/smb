@@ -52,7 +52,7 @@ async def enumerate_share_files(
         :return: The path of the enumerated directory and a list of its file/directory information entries.
         """
 
-        async with smb_connection.create_dir_cm(path=path, session=smb_session, tree_id=tree_id) as create_response:
+        async with smb_connection.create_dir(path=path, session=smb_session, tree_id=tree_id) as create_response:
             return PureWindowsPath(path), await smb_connection.query_directory(
                 file_id=create_response.file_id,
                 file_information_class=FileInformationClass.FileIdFullDirectoryInformation,
@@ -110,28 +110,25 @@ async def enumerate_share_files(
 
 
 async def main():
-    smb_connection = SMBv2Connection()
-    await smb_connection.connect(host_address='192.168.4.13')
-    await smb_connection.negotiate()
+    async with SMBv2Connection(host_address='192.168.4.13') as smb_connection:
+        await smb_connection.negotiate()
+        async with smb_connection.setup_session(username='vph', authentication_secret='PASSWORD') as smb_session:
+            async with smb_connection.tree_connect(share_name='Users', session=smb_session) as (tree_id, share_type):
+                script_paths: List[PureWindowsPath] = []
 
-    async with smb_connection.setup_session_cm(username='vph', authentication_secret='PASSWORD') as smb_session:
-        async with smb_connection.tree_connect_cm(share_name='Users', session=smb_session) as (tree_id, share_type):
+                def collect_script_paths(entry_path: PureWindowsPath, *_, **__) -> bool:
+                    if entry_path.suffix.lower() == '.bat':
+                        script_paths.append(entry_path)
+                    return True
 
-            script_paths: List[PureWindowsPath] = []
-            
-            def collect_script_paths(entry_path: PureWindowsPath, *_, **__) -> bool:
-                if entry_path.suffix.lower() == '.bat':
-                    script_paths.append(entry_path)
-                return True
+                await enumerate_share_files(
+                    smb_connection=smb_connection,
+                    smb_session=smb_session,
+                    tree_id=tree_id,
+                    per_file_callback=collect_script_paths
+                )
 
-            await enumerate_share_files(
-                smb_connection=smb_connection,
-                smb_session=smb_session,
-                tree_id=tree_id,
-                per_file_callback=collect_script_paths
-            )
-
-            print('\n'.join(str(script_path) for script_path in script_paths))
+                print('\n'.join(str(script_path) for script_path in script_paths))
 
 
 if __name__ == '__main__':

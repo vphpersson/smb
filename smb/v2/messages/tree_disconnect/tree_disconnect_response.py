@@ -3,14 +3,13 @@ from dataclasses import dataclass
 from typing import ClassVar
 from struct import pack as struct_pack
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
-from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
 @register_smbv2_message
-class TreeDisconnectResponse(SMBv2Message, SMBResponseMessage):
+class TreeDisconnectResponse(SMBv2ResponseMessage):
 
     structure_size: ClassVar[int] = 4
     _reserved: ClassVar[bytes] = 2 * b'\x00'

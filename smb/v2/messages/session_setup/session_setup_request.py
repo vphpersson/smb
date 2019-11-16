@@ -5,12 +5,10 @@ from struct import unpack as struct_unpack, pack as struct_pack
 from typing import ClassVar
 
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
-from smb.v2.dialect import Dialect
+from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
 from smb.v2.security_mode import SecurityMode
 from smb.v2.capabilities import CapabilitiesFlag
 from smb.exceptions import MalformedSessionSetupRequestError, IncorrectStructureSizeError
-from smb.smb_message import SMBRequestMessage
 
 
 # TODO: Rather than being an `IntEnum`, shouldn't this be a flag, to indicate that it can be empty?
@@ -22,7 +20,7 @@ class SessionSetupRequestFlag(IntEnum):
 
 @dataclass
 @register_smbv2_message
-class SessionSetupRequest(SMBv2Message, SMBRequestMessage):
+class SessionSetupRequest(SMBv2RequestMessage):
     security_mode: SecurityMode
     security_buffer: bytes
     flags: SessionSetupRequestFlag = SessionSetupRequestFlag.SMB2_SESSION_FLAG_NONE

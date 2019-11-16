@@ -3,21 +3,20 @@ from dataclasses import dataclass
 from typing import ClassVar
 from struct import pack as struct_pack, unpack as struct_unpack
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedLogoffResponseError
-from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
 @register_smbv2_message
-class LogoffResponse(SMBv2Message, SMBResponseMessage):
+class LogoffResponse(SMBv2ResponseMessage):
     structure_size: ClassVar[int] = 4
     _reserved: ClassVar[int] = 2 * b'\x00'
     _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_LOGOFF
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
+    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> LogoffResponse:
         body_data: bytes = data[len(header):]
 
         try:

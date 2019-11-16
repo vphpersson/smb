@@ -3,9 +3,8 @@ from enum import IntEnum
 from struct import unpack as struct_unpack
 from typing import ClassVar
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
-from smb.smb_message import SMBResponseMessage
 
 
 class SessionFlag(IntEnum):
@@ -17,7 +16,7 @@ class SessionFlag(IntEnum):
 
 @dataclass
 @register_smbv2_message
-class SessionSetupResponse(SMBv2Message, SMBResponseMessage):
+class SessionSetupResponse(SMBv2ResponseMessage):
     session_flags: SessionFlag
     security_buffer: bytes
 

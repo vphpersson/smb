@@ -4,13 +4,12 @@ from typing import ClassVar
 from struct import pack as struct_pack, unpack as struct_unpack, error as struct_error
 from enum import IntEnum, IntFlag
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedQueryDirectoryRequestError,\
     InvalidQueryDirectoryFileIndexValueError, InvalidQueryDirectoryFlagsValueError,\
     InvalidQueryDirectoryRequestFileInformationClassValueError
 from smb.v2.file_id import FileId
-from smb.smb_message import SMBRequestMessage
 
 from msdsalgs.utils import make_mask_class
 
@@ -38,7 +37,7 @@ QueryDirectoryFlag = make_mask_class(QueryDirectoryFlagMask, prefix='SMB2_')
 
 @dataclass
 @register_smbv2_message
-class QueryDirectoryRequest(SMBv2Message, SMBRequestMessage):
+class QueryDirectoryRequest(SMBv2RequestMessage):
     """
     [MS-SMB2]: SMB2 QUERY_DIRECTORY Request | Microsoft Docs
     https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/10906442-294c-46d3-8515-c277efe1f752

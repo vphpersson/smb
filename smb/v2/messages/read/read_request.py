@@ -5,13 +5,12 @@ from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntEnum, IntFlag
 from abc import ABC
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedReadRequestError, InvalidReadRequestFlagError,\
     InvalidReadRequestChannelError, InvalidReadRequestReadChannelInfoOffsetError,\
     InvalidReadRequestReadChannelLengthError
 from smb.v2.file_id import FileId
-from smb.smb_message import SMBRequestMessage
 from smb.v2.dialect import Dialect
 
 from msdsalgs.utils import make_mask_class
@@ -34,7 +33,7 @@ class ReadRequestChannel(IntEnum):
 
 @dataclass
 @register_smbv2_message
-class ReadRequest(SMBv2Message, SMBRequestMessage, ABC):
+class ReadRequest(SMBv2RequestMessage, ABC):
     structure_size: ClassVar[int] = 49
     _reserved_flags_value: ClassVar[bytes] = b'\x00'
     _reserved_channel_value: ClassVar[bytes] = 4 * b'\x00'

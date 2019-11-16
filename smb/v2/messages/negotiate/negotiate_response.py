@@ -8,19 +8,18 @@ from typing import ClassVar
 
 from msdsalgs.time import filetime_to_datetime
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.v2.security_mode import SecurityMode
 from smb.v2.dialect import Dialect
 from smb.v2.capabilities import CapabilitiesFlag
 from smb.v2.negotiate_context import NegotiateContextList
 from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateResponseError
-from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
 @register_smbv2_message
-class NegotiateResponse(SMBv2Message, SMBResponseMessage, ABC):
+class NegotiateResponse(SMBv2ResponseMessage, ABC):
     dialect_revision: Dialect
     security_mode: SecurityMode
     server_guid: UUID
@@ -71,6 +70,8 @@ class NegotiateResponse(SMBv2Message, SMBResponseMessage, ABC):
             security_buffer=data[security_buffer_offset:security_buffer_offset+security_buffer_length]
         )
 
+        # TODO: Use a map?
+
         if dialect_revision == Dialect.SMB_3_1_1:
             negotiate_context_offset: int = struct_unpack('<I', body_data[60:64])[0]
             return SMB311NegotiateResponse(
@@ -80,15 +81,15 @@ class NegotiateResponse(SMBv2Message, SMBResponseMessage, ABC):
                     num_contexts=struct_unpack('<I', body_data[6:8])[0]
                 )
             )
-        elif dialect_revision == Dialect.SMB_2_0_2:
+        elif dialect_revision is Dialect.SMB_2_0_2:
             return SMB202NegotiateResponse(**base_kwargs)
-        elif dialect_revision == Dialect.SMB_2_1:
+        elif dialect_revision is Dialect.SMB_2_1:
             return SMB210NegotiateResponse(**base_kwargs)
-        elif dialect_revision == Dialect.SMB_3_0:
+        elif dialect_revision is Dialect.SMB_3_0:
             return SMB300NegotiateResponse(**base_kwargs)
-        elif dialect_revision == Dialect.SMB_3_0_2:
+        elif dialect_revision is Dialect.SMB_3_0_2:
             return SMB302NegotiateResponse(**base_kwargs)
-        elif dialect_revision == Dialect.SMB_2_WILDCARD:
+        elif dialect_revision is Dialect.SMB_2_WILDCARD:
             return SMB2WildcardNegotiateResponse(**base_kwargs)
         else:
             # TODO: Use proper exception.

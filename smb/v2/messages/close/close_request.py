@@ -6,12 +6,11 @@ from enum import IntFlag
 
 from msdsalgs.utils import make_mask_class
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedCloseRequestError, \
     NonEmptyCloseRequestReservedValueError, InvalidCloseRequestFlagValueError
 from smb.v2.file_id import FileId
-from smb.smb_message import SMBRequestMessage
 
 
 class CloseFlagMask(IntFlag):
@@ -25,7 +24,7 @@ CloseFlag = make_mask_class(CloseFlagMask, prefix='SMB2_CLOSE_FLAG_')
 
 @dataclass
 @register_smbv2_message
-class CloseRequest(SMBv2Message, SMBRequestMessage):
+class CloseRequest(SMBv2RequestMessage):
 
     flags: CloseFlag
     file_id: FileId

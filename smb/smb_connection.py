@@ -9,8 +9,6 @@ from asyncio import StreamReader, StreamWriter, wait_for as asyncio_wait_for, \
 from smb.smb_message import SMBMessage
 from smb.transport import Transport, NotEnoughDataError
 
-# TODO: Use a custom `typing` class for session id?
-
 
 @dataclass
 class NegotiatedDetails(ABC):
@@ -44,6 +42,7 @@ class SMBConnection(ABC):
     async def _handle_incoming_bytes(self, reader: StreamReader, incoming_smb_messages_queue: AsyncioQueue):
 
         # TODO: Maybe there is a better way to use a buffer.
+        # TODO: The `read` sizes are arbitrary. What is optimal?
         buffer = b''
         while not self._disconnect_event.is_set():
             try:
@@ -75,6 +74,7 @@ class SMBConnection(ABC):
             )
             await writer.drain()
 
+    # TODO: Make into a context manager, so `reader` and `writer` can be closed.
     async def connect(
         self,
         host_address: Union[str, IPv4Address, IPv6Address],

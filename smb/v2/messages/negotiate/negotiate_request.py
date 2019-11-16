@@ -6,20 +6,20 @@ from abc import ABC
 from struct import unpack as struct_unpack, pack as struct_pack
 
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.dialect import Dialect
 from smb.v2.security_mode import SecurityMode
 from smb.v2.capabilities import CapabilitiesFlag
 from smb.v2.negotiate_context import NegotiateContextList
 from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateRequestError,\
     NoNegotiateDialectsError, NegotiateRequestCapabilitiesNotEmpty, NotImplementedNegotiateRequestError
-from smb.smb_message import SMBRequestMessage
+# from smb.smb_message import SMBRequestMessage
 
 
 # TODO: Is this missing `structure_size`?
 @dataclass
 @register_smbv2_message
-class NegotiateRequest(SMBv2Message, SMBRequestMessage, ABC):
+class NegotiateRequest(SMBv2ResponseMessage, ABC):
 
     dialects: Tuple[Dialect, ...]
     security_mode: SecurityMode

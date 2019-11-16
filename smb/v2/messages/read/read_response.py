@@ -3,16 +3,15 @@ from dataclasses import dataclass
 from typing import ClassVar
 from struct import pack as struct_pack, unpack as struct_unpack
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedReadResponseError, \
     NonEmptyReadResponseReservedValueError, NonEmptyReadResponseReserved2ValueError
-from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
 @register_smbv2_message
-class ReadResponse(SMBv2Message, SMBResponseMessage):
+class ReadResponse(SMBv2ResponseMessage):
     buffer: bytes
     data_remaining_length: int
 

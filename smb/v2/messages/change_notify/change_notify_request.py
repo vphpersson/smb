@@ -4,8 +4,7 @@ from typing import ClassVar
 from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntFlag
 
-from smb.smb_message import SMBRequestMessage
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.v2.file_id import FileId
 from smb.exceptions import IncorrectStructureSizeError
@@ -40,7 +39,7 @@ ChangeNotifyFlag = make_mask_class(ChangeNotifyFlagMask, prefix='SMB2_')
 
 @dataclass
 @register_smbv2_message
-class ChangeNotifyRequest(SMBv2Message, SMBRequestMessage):
+class ChangeNotifyRequest(SMBv2RequestMessage):
 
     structure_size: ClassVar[int] = 32
     _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CHANGE_NOTIFY
@@ -49,7 +48,7 @@ class ChangeNotifyRequest(SMBv2Message, SMBRequestMessage):
     flags: ChangeNotifyFlag
     file_id: FileId
     completion_filter: CompletionFilterFlag
-    # Max 4-byte value.
+    # TODO: Arbitrary value. Reconsider.
     output_buffer_length: int = 8192
 
     @classmethod

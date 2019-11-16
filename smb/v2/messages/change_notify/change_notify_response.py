@@ -4,8 +4,7 @@ from typing import ClassVar, Tuple
 from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntEnum
 
-from smb.smb_message import SMBResponseMessage
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError
 
@@ -61,7 +60,7 @@ class FileNotifyInformation:
 
 @dataclass
 @register_smbv2_message
-class ChangeNotifyResponse(SMBv2Message, SMBResponseMessage):
+class ChangeNotifyResponse(SMBv2ResponseMessage):
     structure_size: ClassVar[int] = 9
     _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CHANGE_NOTIFY
 

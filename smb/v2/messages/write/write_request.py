@@ -5,10 +5,8 @@ from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntFlag
 from abc import ABC
 
-from smb.smb_message import SMBRequestMessage
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
-from smb.v2.smbv2_header import SMBv2Header, SMBv2Command, SMB2XSyncHeader, SMB3XSyncHeader, SMB2XAsyncHeader, \
-    SMB3XAsyncHeader, Dialect
+from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command, SMB2XSyncHeader, SMB3XSyncHeader, Dialect
 from smb.v2.file_id import FileId
 from smb.exceptions import IncorrectStructureSizeError
 from smb.v2.messages.read.read_request import ReadRequestChannel
@@ -27,7 +25,7 @@ WriteFlag = make_mask_class(WriteFlagMask, prefix='SMB2_WRITEFLAG_')
 
 @dataclass
 @register_smbv2_message
-class WriteRequest(SMBv2Message, SMBRequestMessage, ABC):
+class WriteRequest(SMBv2RequestMessage, ABC):
     # TODO: Actual size is 48. Must the buffer contain at least one byte?
     structure_size: ClassVar[int] = 49
 
@@ -66,7 +64,7 @@ class WriteRequest(SMBv2Message, SMBRequestMessage, ABC):
 
         write_data: bytes = data[data_offset:data_offset+length]
 
-        if isinstance(header, (SMB2XSyncHeader, SMB2XAsyncHeader)):
+        if isinstance(header, SMB2XSyncHeader):
             if channel != cls._reserved_channel:
                 # TODO: Use proper exception.
                 raise ValueError
@@ -86,7 +84,7 @@ class WriteRequest(SMBv2Message, SMBRequestMessage, ABC):
                 remaining_bytes=remaining_bytes,
                 flags=flags
             )
-        elif isinstance(header, (SMB3XSyncHeader, SMB3XAsyncHeader)):
+        elif isinstance(header, SMB3XSyncHeader):
             write_channel_info_offset: int = struct_unpack('<H', write_channel_info_offset_raw)[0]
             write_channel_info_length: int = struct_unpack('<H', write_channel_info_length_raw)[0]
 

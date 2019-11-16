@@ -133,11 +133,21 @@ class SessionSetupAuthenticationMethod(Enum):
 
 class SMBv2Connection(SMBConnection):
 
-    def __init__(self):
+    def __init__(
+        self,
+        host_address: Union[str, IPv4Address, IPv6Address],
+        port_number: int = 445,
+        timeout_in_seconds: float = 3.0
+    ):
+        """
+        :param host_address: The address of the host to connect to.
+        :param port_number: The port number that the remote SMB service uses.
+        :param timeout_in_seconds: The number of seconds to wait for a connection before timing out.
+        """
 
         from smb.v2.smbv2_session import SMBv2Session
 
-        super().__init__()
+        super().__init__(host_address=host_address, port_number=port_number, timeout_in_seconds=timeout_in_seconds)
         # TODO: Not sure which UUID function to use.
         self._client_guid: UUID = uuid1()
         # TODO: How to get this?
@@ -373,7 +383,7 @@ class SMBv2Connection(SMBConnection):
 
     # TODO: Figure out what "WORKSTATION" means.
     # TODO: I think it is possible to setup anonymous sessions.
-    async def setup_session(
+    async def _setup_session(
         self,
         username: str,
         authentication_secret: Union[str, bytes],
@@ -381,17 +391,6 @@ class SMBv2Connection(SMBConnection):
         workstation_name: Optional[Union[str, IPv4Address, IPv6Address]] = None,
         authentication_method: SessionSetupAuthenticationMethod = SessionSetupAuthenticationMethod.LM_NTLM_v2
     ) -> SMBSession:
-        """
-        Request a new authenticated SMB session.
-
-        :param username: The username with which to authenticate.
-        :param authentication_secret: The password or NT hash of the user which to authenticate, differentiated by type.
-        :param domain_name: The name of the domain to which the user belongs.
-        :param workstation_name: The name of the client workstation.
-        :param authentication_method: The authentication method to be used.
-        :return: An authenticated SMB session.
-        """
-
         if authentication_method in {SessionSetupAuthenticationMethod.LM_NTLM_v1, SessionSetupAuthenticationMethod.LM_NTLM_v2}:
             # TODO: Let this reference a constant defined somewhere?
             mech_type: OID = OID.from_string(string='1.3.6.1.4.1.311.2.2.10')
@@ -517,7 +516,7 @@ class SMBv2Connection(SMBConnection):
             raise ValueError
 
     @asynccontextmanager
-    async def setup_session_cm(
+    async def setup_session(
         self,
         username: str,
         authentication_secret: Union[str, bytes],
@@ -536,7 +535,7 @@ class SMBv2Connection(SMBConnection):
         :return: An authenticated SMB session.
         """
 
-        session: SMBv2Session = await self.setup_session(
+        session: SMBv2Session = await self._setup_session(
             username=username,
             authentication_secret=authentication_secret,
             domain_name=domain_name,
@@ -547,20 +546,12 @@ class SMBv2Connection(SMBConnection):
         yield session
         await self.logoff(session=session)
 
-    async def tree_connect(
+    async def _tree_connect(
         self,
         share_name: str,
         session: SMBv2Session,
         server_address: Optional[Union[str, IPv4Address, IPv6Address]] = None
     ) -> Tuple[int, ShareType]:
-        """
-        Obtain access to a particular share on a remote server.
-
-        :param share_name: The name of the share to obtain access to.
-        :param session: An SMB session with which to access the share.
-        :param server_address: The address of the server on which the share exists.
-        :return: The tree id and share type of the SMB share accessed.
-        """
 
         tree_connect_response: SMBv2Message = await (
             await self._send_message(
@@ -569,7 +560,7 @@ class SMBv2Connection(SMBConnection):
                         command=SMBv2Command.SMB2_TREE_CONNECT,
                         session_id=session.session_id,
                     ),
-                    path=f'\\\\{server_address or self._remote_host_address}\\{share_name}'
+                    path=f'\\\\{server_address or self._host_address}\\{share_name}'
                 )
             )
         )
@@ -612,7 +603,7 @@ class SMBv2Connection(SMBConnection):
             raise ValueError
 
     @asynccontextmanager
-    async def tree_connect_cm(
+    async def tree_connect(
         self,
         share_name: str,
         session: SMBv2Session,
@@ -627,7 +618,7 @@ class SMBv2Connection(SMBConnection):
         :return: The tree id and share type of the SMB share accessed.
         """
 
-        tree_id, share_type = await self.tree_connect(
+        tree_id, share_type = await self._tree_connect(
             share_name=share_name,
             session=session,
             server_address=server_address
@@ -636,7 +627,7 @@ class SMBv2Connection(SMBConnection):
         # create_task(await self.tree_disconnect(session=session, tree_id=tree_id))
         await self.tree_disconnect(session=session, tree_id=tree_id)
 
-    async def create(
+    async def _create(
         self,
         path: Union[str, PureWindowsPath],
         session: SMBv2Session,
@@ -723,7 +714,7 @@ class SMBv2Connection(SMBConnection):
             raise ValueError
 
     @asynccontextmanager
-    async def create_cm(
+    async def create(
         self,
         path: Union[str, PureWindowsPath],
         session: SMBv2Session,
@@ -757,7 +748,7 @@ class SMBv2Connection(SMBConnection):
         """
 
         create_response: CreateResponse = (
-            await self.create(
+            await self._create(
                 path=path,
                 session=session,
                 tree_id=tree_id,
@@ -777,7 +768,7 @@ class SMBv2Connection(SMBConnection):
         await self.close(session=session, tree_id=tree_id, file_id=create_response.file_id)
 
     @asynccontextmanager
-    async def create_dir_cm(
+    async def create_dir(
         self,
         path: Union[str, PureWindowsPath],
         session: SMBv2Session,
@@ -811,7 +802,7 @@ class SMBv2Connection(SMBConnection):
         """
 
         create_response: CreateResponse = (
-            await self.create(
+            await self._create(
                 path=path,
                 session=session,
                 tree_id=tree_id,

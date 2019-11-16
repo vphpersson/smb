@@ -237,6 +237,7 @@ class SMBv2Connection(SMBConnection):
                 else:
                     async_response_message_future = Future()
                     self._message_id_and_async_id_to_response_message_future[async_key] = async_response_message_future
+                    # TODO: This is not a good solution either, is it?
                     async_response_message_future.add_done_callback(
                         lambda _: self._message_id_and_async_id_to_response_message_future.pop(async_key)
                     )
@@ -773,9 +774,6 @@ class SMBv2Connection(SMBConnection):
 
         yield create_response
 
-        # TODO: These could be run with `create_task`, yeah? Could it not be the case that the session or tree
-        #   are closed before? :thinking:
-        # create_task(self.close(session=session, tree_id=tree_id, file_id=create_response.file_id))
         await self.close(session=session, tree_id=tree_id, file_id=create_response.file_id)
 
     @asynccontextmanager
@@ -830,7 +828,6 @@ class SMBv2Connection(SMBConnection):
 
         yield create_response
 
-        # create_task(self.close(session=session, tree_id=tree_id, file_id=create_response.file_id))
         await self.close(session=session, tree_id=tree_id, file_id=create_response.file_id)
 
     def read(

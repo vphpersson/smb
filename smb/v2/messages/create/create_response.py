@@ -8,15 +8,14 @@ from struct import unpack as struct_unpack, pack as struct_pack
 from msdsalgs.time import filetime_to_datetime
 from msdsalgs.utils import make_mask_class
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
-from smb.v2.smbv2_header import SMBv2Header, SMB311SyncHeader, SMB311AsyncHeader, SMBv2Command
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMB311SyncRequestHeader, SMB311AsyncHeader, SMBv2Command
 from smb.v2.messages.create.create_context import CreateContextList
 from smb.v2.messages.create.create_request import OplockLevel, FileAttributes
 from smb.v2.file_id import FileId
 from smb.exceptions import IncorrectStructureSizeError, MalformedCreateResponseError, \
     InvalidCreateResponseOplockLevelError, InvalidCreateResponseFlagError, InvalidCreateResponseActionError, \
     InvalidCreateResponseFileAttributesError
-from smb.smb_message import SMBResponseMessage
 
 
 class CreateAction(IntEnum):
@@ -35,7 +34,7 @@ CreateFlag = make_mask_class(CreateFlagMask, prefix='SMB_CREATE_FLAG_')
 
 @dataclass
 @register_smbv2_message
-class CreateResponse(SMBv2Message, SMBResponseMessage):
+class CreateResponse(SMBv2ResponseMessage):
     oplock_level: OplockLevel
     flags: Optional[CreateFlag]
     create_action: CreateAction
@@ -84,7 +83,7 @@ class CreateResponse(SMBv2Message, SMBResponseMessage):
         except ValueError as e:
             raise InvalidCreateResponseOplockLevelError from e
 
-        if isinstance(header, (SMB311SyncHeader, SMB311AsyncHeader)):
+        if isinstance(header, (SMB311SyncRequestHeader, SMB311AsyncHeader)):
             try:
                 flags = CreateFlag.from_mask(body_data[3])
             except ValueError as e:

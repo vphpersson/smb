@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 from struct import pack as struct_pack, unpack as struct_unpack
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.messages.create.create_request import FileAttributes
 from smb.v2.messages.close.close_request import CloseFlag
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
@@ -14,12 +14,11 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedCloseResponseEr
     NonEmptyCloseResponseLastAccessTimeValueError, NonEmptyCloseResponseLastWriteTimeValueError, \
     NonEmptyCloseResponseChangeTimeValueError, NonEmptyCloseResponseAllocationSizeValueError, \
     NonEmptyCloseResponseEndofFileValueError, NonEmptyCloseResponseFileAttributesValueError
-from smb.smb_message import SMBResponseMessage
 
 
 @dataclass
 @register_smbv2_message
-class CloseResponse(SMBv2Message, SMBResponseMessage):
+class CloseResponse(SMBv2ResponseMessage):
     flags: CloseFlag
     file_information: Optional[FileInformation] = None
 

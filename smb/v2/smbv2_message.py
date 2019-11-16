@@ -5,9 +5,9 @@ from typing import ClassVar, Tuple, Dict, Type
 from math import ceil
 
 from smb.smb_message import SMBMessage
-from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command, SMBv2RequestHeader, SMBv2ResponseHeader
 from smb.exceptions import IncorrectStructureSizeError
-from smb.smb_message import SMBResponseMessage
+# from smb.smb_message import SMBResponseMessage
 
 
 # TODO: Does this make sense?
@@ -69,6 +69,16 @@ class SMBv2Message(SMBMessage, ABC):
             return cls._command_and_type_to_class[lookup_key_tuple]._from_bytes_and_header(data=data, header=header)
 
 
+@dataclass
+class SMBv2RequestMessage(SMBv2Message, ABC):
+    header: SMBv2RequestHeader
+
+
+@dataclass
+class SMBv2ResponseMessage(SMBv2Message, ABC):
+    header: SMBv2ResponseHeader
+
+
 def register_smbv2_message(cls: Type[SMBv2Message]):
-    cls._command_and_type_to_class[(cls._command, issubclass(cls, SMBResponseMessage))] = cls
+    cls._command_and_type_to_class[(cls._command, issubclass(cls, SMBv2ResponseMessage))] = cls
     return cls

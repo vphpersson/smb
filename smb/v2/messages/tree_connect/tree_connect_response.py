@@ -6,10 +6,9 @@ from struct import unpack as struct_unpack, pack as struct_pack
 
 from msdsalgs.utils import make_mask_class
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.v2.access_mask import FilePipePrinterAccessMask
-from smb.smb_message import SMBResponseMessage
 
 
 class ShareType(IntEnum):
@@ -53,7 +52,7 @@ ShareCapabilities = make_mask_class(ShareCapabilitiesMask, prefix='SMB2_SHARE_CA
 
 @dataclass
 @register_smbv2_message
-class TreeConnectResponse(SMBv2Message, SMBResponseMessage):
+class TreeConnectResponse(SMBv2ResponseMessage):
     share_type: ShareType
     share_flag: ShareFlag
     share_capabilities: ShareCapabilities

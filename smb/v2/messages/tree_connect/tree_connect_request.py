@@ -7,12 +7,9 @@ from struct import pack as struct_pack, unpack as struct_unpack
 
 from msdsalgs.utils import make_mask_class
 
-from smb.v2.smbv2_header import SMBv2Header, SMB202SyncHeader, SMB202AsyncHeader, SMB210SyncHeader, \
-    SMB210AsyncHeader, SMB300SyncHeader, SMB300AsyncHeader, SMB302SyncHeader, SMB302AsyncHeader, SMB311SyncHeader, \
-    SMB311AsyncHeader, SMBv2Command, SMBv2Flag
-from smb.v2.smbv2_message import SMBv2Message, calculate_credit_charge, register_smbv2_message
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
+from smb.v2.smbv2_message import SMBv2RequestMessage, calculate_credit_charge, register_smbv2_message
 from smb.v2.dialect import Dialect
-from smb.smb_message import SMBRequestMessage
 
 
 class TreeConnectFlagMask(IntFlag):
@@ -42,9 +39,9 @@ class TreeConnectRequestExtension:
     def from_bytes(cls, data: bytes, path_name_len: int) -> 'TreeConnectRequestExtension':
         tree_connect_context_type = TreeConnectContextType(struct_unpack('<H', data[:2])[0])
         if tree_connect_context_type is TreeConnectContextType.SMB2_REMOTED_IDENTITY_TREE_CONNECT_CONTEXT_ID:
-            ...
+            raise NotImplementedError
         elif tree_connect_context_type is TreeConnectContextType.SMB2_RESERVED_TREE_CONNECT_CONTEXT_ID:
-            ...
+            raise NotImplementedError
         else:
             # TODO: Use proper exception.
             raise ValueError
@@ -57,7 +54,7 @@ class RemotedIdentityTreeConnectContext(TreeConnectRequestExtension):
 
 @dataclass
 @register_smbv2_message
-class TreeConnectRequest(SMBv2Message, SMBRequestMessage, ABC):
+class TreeConnectRequest(SMBv2RequestMessage, ABC):
     structure_size: ClassVar[int] = 9
 
     _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
@@ -87,68 +84,6 @@ class TreeConnectRequest(SMBv2Message, SMBRequestMessage, ABC):
             #     **tree_connect_base_kwargs,
             #     flags=TreeConnectFlag.from_mask(mask=struct_unpack('<H', body_data[2:4])[0])
             # )
-        else:
-            # TODO: Use proper exception.
-            raise ValueError
-
-    @classmethod
-    def make_tree_connect_request(
-        cls,
-        path: str,
-        session_id: int,
-        dialect: Dialect,
-        num_request_credits: int = 8192
-    ) -> TreeConnectRequest:
-        """
-
-        :param path: The UNC of the share which to connect to.
-        :param session_id: The id of the session which to be used for connecting.
-        :param dialect: The dialect of the request message.
-        :param num_request_credits: The number of credits to request.
-        :return:
-        """
-
-        headers_base_kwargs = dict(
-            command=SMBv2Command.SMB2_TREE_CONNECT,
-            flags=SMBv2Flag(),
-            session_id=session_id,
-            num_credits=num_request_credits,
-        )
-
-        # TODO: Not sure about this value.
-        channel_sequence = b''
-
-        if dialect is Dialect.SMB_3_1_1:
-            raise NotImplementedError
-
-        if dialect is Dialect.SMB_2_0_2:
-            return TreeConnectRequest202(header=SMB202SyncHeader(**headers_base_kwargs), path=path)
-
-        credit_charge: int = calculate_credit_charge(variable_payload_size=0, expected_maximum_response_size=0)
-
-        if dialect is Dialect.SMB_2_1:
-            return TreeConnectRequest210(
-                header=SMB210SyncHeader(**headers_base_kwargs, credit_charge=credit_charge),
-                path=path
-            )
-        elif dialect is Dialect.SMB_3_0:
-            return TreeConnectRequest300(
-                header=SMB300SyncHeader(
-                    **headers_base_kwargs,
-                    credit_charge=credit_charge,
-                    channel_sequence=channel_sequence
-                ),
-                path=path
-            )
-        elif dialect is Dialect.SMB_3_0_2:
-            return TreeConnectRequest302(
-                header=SMB302SyncHeader(
-                    **headers_base_kwargs,
-                    credit_charge=credit_charge,
-                    channel_sequence=channel_sequence
-                ),
-                path=path
-            )
         else:
             # TODO: Use proper exception.
             raise ValueError

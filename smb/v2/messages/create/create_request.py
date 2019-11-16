@@ -8,7 +8,7 @@ from math import ceil
 
 from msdsalgs.utils import make_mask_class
 
-from smb.v2.smbv2_message import SMBv2Message, register_smbv2_message
+from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedCreateRequestError, \
     NonEmptySecurityFlagsError, NonEmptySmbCreateFlagsError, InvalidCreateDesiredAccessValueError, \
@@ -18,7 +18,6 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedCreateRequestEr
     InvalidCreateNameError
 from smb.v2.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
 from smb.v2.messages.create.create_context import CreateContextList
-from smb.smb_message import SMBRequestMessage
 
 
 class OplockLevel(IntEnum):
@@ -104,7 +103,7 @@ CreateOptions = make_mask_class(CreateOptionsFlag, prefix='FILE_')
 
 @dataclass
 @register_smbv2_message
-class CreateRequest(SMBv2Message, SMBRequestMessage):
+class CreateRequest(SMBv2RequestMessage):
     requested_oplock_level: OplockLevel
     impersonation_level: ImpersonationLevel
     desired_access: Union[FilePipePrinterAccessMask, DirectoryAccessMask]

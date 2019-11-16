@@ -27,7 +27,7 @@ from smb.v2.messages.negotiate.negotiate_response import NegotiateResponse, SMB2
     SMB210NegotiateResponse, SMB300NegotiateResponse, SMB302NegotiateResponse, SMB311NegotiateResponse
 from smb.v2.messages.session_setup.session_setup_request import SessionSetupRequest
 from smb.v2.messages.session_setup.session_setup_response import SessionSetupResponse
-from smb.v2.messages.tree_connect.tree_connect_request import TreeConnectRequest
+from smb.v2.messages.tree_connect.tree_connect_request import TreeConnectRequest210
 from smb.v2.messages.tree_connect.tree_connect_response import TreeConnectResponse, ShareType
 from smb.v2.messages.create.create_request import CreateRequest
 from smb.v2.messages.create.create_response import CreateResponse
@@ -50,7 +50,7 @@ from smb.v2.messages.change_notify.change_notify_request import ChangeNotifyRequ
 from smb.v2.messages.change_notify.change_notify_response import ChangeNotifyResponse
 from smb.v2.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
     CompressionCapabilitiesContext, NetnameNegotiateContextIdContext
-from smb.v2.smbv2_header import SMBv2Header, SMB2XSyncHeader, SMBv2Command, SMB210SyncHeader
+from smb.v2.smbv2_header import SMBv2Header, SMBv2Command, SMBv2AsyncHeader, SMB210SyncRequestHeader
 from smb.status import Status
 from smb.v2.security_mode import SecurityMode
 from smb.v2.tree_connect_object import TreeConnectObject
@@ -153,13 +153,17 @@ class SMBv2Connection(SMBConnection):
         self._outstanding_request_message_id_to_smb_message_request: Dict[int, SMBv2Message] = {}
         # A.k.a. OutstandingRequests, with CancelId lookup
         self._outstanding_request_cancel_id_to_smb_message_request: Dict[bytes, SMBv2Message] = {}
-        # A.k.a. SequenceWindow
+        # TODO: What is this?
         self._gss_negotiate_token: Optional[bytes] = None
 
-        self._outstanding_request_message_id_to_response_message_future: Dict[int, Future] = {}
-
+        # A.k.a. SequenceWindow
         self._sequence_window_lower: int = 0
         self._sequence_window_upper: int = 1
+
+        # Custom
+
+        self._outstanding_request_message_id_to_response_message_future: Dict[int, Future] = {}
+        self._message_id_and_async_id_to_response_message_future: Dict[Tuple[int, int], Future] = {}
 
         create_task(self._receive_message())
 
@@ -223,10 +227,22 @@ class SMBv2Connection(SMBConnection):
 
             self._sequence_window_upper += incoming_message.header.num_credits
 
+            if isinstance(incoming_message.header, SMBv2AsyncHeader):
+                async_key: Tuple[int, int] = (incoming_message.header.message_id, incoming_message.header.async_id)
+
+                if incoming_message.header.status.real_status is not Status.STATUS_PENDING:
+                    # TODO: It would be nice if the data that resolve is message-specific.
+                    self._message_id_and_async_id_to_response_message_future[async_key].set_result(incoming_message)
+                    continue
+                else:
+                    async_response_message_future = Future()
+                    self._message_id_and_async_id_to_response_message_future[async_key] = async_response_message_future
+                    async_response_message_future.add_done_callback(
+                        lambda _: self._message_id_and_async_id_to_response_message_future.pop(async_key)
+                    )
             self._outstanding_request_message_id_to_smb_message_request.pop(incoming_message.header.message_id)
             # TODO: Pop the cancel id map.
-
-            self._outstanding_request_message_id_to_response_message_future[incoming_message.header.message_id].set_result(incoming_message)
+            self._outstanding_request_message_id_to_response_message_future.pop(incoming_message.header.message_id).set_result(incoming_message)
 
     async def _send_message(self, request_message: SMBv2Message) -> Awaitable[SMBv2Message]:
         """
@@ -248,10 +264,8 @@ class SMBv2Connection(SMBConnection):
 
         response_message_future = Future()
         self._outstanding_request_message_id_to_response_message_future[request_message.header.message_id] = response_message_future
-        response_message_future.add_done_callback(lambda _: self._outstanding_request_message_id_to_response_message_future.pop(request_message.header.message_id))
 
         create_task(self._outgoing_smb_messages_queue.put(request_message))
-        # await self._outgoing_smb_messages_queue.put(request_message)
 
         return response_message_future
 
@@ -266,7 +280,7 @@ class SMBv2Connection(SMBConnection):
         negotiate_response: SMBv2Message = await (
             await self._send_message(
                 NegotiateRequest(
-                    header=SMB210SyncHeader(
+                    header=SMB210SyncRequestHeader(
                         command=SMBv2Command.SMB2_NEGOTIATE
                     ),
                     dialects=(PREFERRED_DIALECT,),
@@ -396,6 +410,7 @@ class SMBv2Connection(SMBConnection):
                     header=SMBv2Header.from_dialect(
                         dialect=self.negotiated_details.dialect,
                         async_status=False,
+                        is_response=False,
                         command=SMBv2Command.SMB2_SESSION_SETUP
                     ),
                     security_mode=SECURITY_MODE,
@@ -415,9 +430,6 @@ class SMBv2Connection(SMBConnection):
 
         # TODO: "The client MUST attempt to locate a session in Connection.SessionTable by using the SessionId in the
         #  SMB2 header"
-
-        if not isinstance(session_setup_response_1.header, SMB2XSyncHeader):
-            raise NotImplementedError
 
         if session_setup_response_1.header.status.real_status is not Status.STATUS_MORE_PROCESSING_REQUIRED:
             raise NotImplementedError
@@ -443,6 +455,7 @@ class SMBv2Connection(SMBConnection):
                     header=SMBv2Header.from_dialect(
                         dialect=self.negotiated_details.dialect,
                         async_status=False,
+                        is_response=False,
                         command=SMBv2Command.SMB2_SESSION_SETUP,
                         session_id=smb_session.session_id
                     ),
@@ -465,9 +478,6 @@ class SMBv2Connection(SMBConnection):
         if not isinstance(session_setup_response_2, SessionSetupResponse):
             # TODO: Use proper exception.
             raise ValueError
-
-        if not isinstance(session_setup_response_2.header, SMB2XSyncHeader):
-            raise NotImplementedError
 
         if session_setup_response_2.header.status.real_status is not Status.STATUS_SUCCESS:
             # TODO: Use proper exception.
@@ -496,7 +506,7 @@ class SMBv2Connection(SMBConnection):
         logoff_response: SMBv2Message = await (
             await self._send_message(
                 request_message=LogoffRequest(
-                    header=SMB210SyncHeader(command=SMBv2Command.SMB2_LOGOFF, session_id=session.session_id)
+                    header=SMB210SyncRequestHeader(command=SMBv2Command.SMB2_LOGOFF, session_id=session.session_id)
                 )
             )
         )
@@ -553,20 +563,18 @@ class SMBv2Connection(SMBConnection):
 
         tree_connect_response: SMBv2Message = await (
             await self._send_message(
-                request_message=TreeConnectRequest.make_tree_connect_request(
-                    path=f'\\\\{server_address or self._remote_host_address}\\{share_name}',
-                    session_id=session.session_id,
-                    dialect=self.negotiated_details.dialect,
-                    num_request_credits=0
+                request_message=TreeConnectRequest210(
+                    header=SMB210SyncRequestHeader(
+                        command=SMBv2Command.SMB2_TREE_CONNECT,
+                        session_id=session.session_id,
+                    ),
+                    path=f'\\\\{server_address or self._remote_host_address}\\{share_name}'
                 )
             )
         )
         if not isinstance(tree_connect_response, TreeConnectResponse):
             # TODO: Raise proper exception.
             raise ValueError
-
-        if not isinstance(tree_connect_response.header, SMB2XSyncHeader):
-            raise NotImplementedError
 
         tree_connect_object = TreeConnectObject(
             tree_connect_id=tree_connect_response.header.tree_id,
@@ -589,7 +597,7 @@ class SMBv2Connection(SMBConnection):
         tree_disconnect_response: SMBv2Message = await (
             await self._send_message(
                 request_message=TreeDisconnectRequest(
-                    header=SMB210SyncHeader(
+                    header=SMB210SyncRequestHeader(
                         command=SMBv2Command.SMB2_TREE_DISCONNECT,
                         session_id=session.session_id,
                         tree_id=tree_id
@@ -655,7 +663,7 @@ class SMBv2Connection(SMBConnection):
         create_response: SMBv2Message = await (
             await self._send_message(
                 request_message=CreateRequest(
-                    header=SMB210SyncHeader(
+                    header=SMB210SyncRequestHeader(
                         command=SMBv2Command.SMB2_CREATE,
                         session_id=session.session_id,
                         tree_id=tree_id,
@@ -692,10 +700,13 @@ class SMBv2Connection(SMBConnection):
         :return: None
         """
 
+        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
+            raise NotImplementedError
+
         close_response: SMBv2Message = await (
             await self._send_message(
                 request_message=CloseRequest(
-                    header=SMB210SyncHeader(
+                    header=SMB210SyncRequestHeader(
                         command=SMBv2Command.SMB2_CLOSE,
                         session_id=session.session_id,
                         tree_id=tree_id
@@ -841,7 +852,7 @@ class SMBv2Connection(SMBConnection):
                 read_response: SMBv2Message = await (
                     await self._send_message(
                         request_message=ReadRequest210(
-                            header=SMB210SyncHeader(
+                            header=SMB210SyncRequestHeader(
                                 command=SMBv2Command.SMB2_READ,
                                 session_id=session.session_id,
                                 tree_id=tree_id,
@@ -892,7 +903,7 @@ class SMBv2Connection(SMBConnection):
         write_response: SMBv2Message = await (
             await self._send_message(
                 request_message=WriteRequest210(
-                    header=SMB210SyncHeader(
+                    header=SMB210SyncRequestHeader(
                         command=SMBv2Command.SMB2_WRITE,
                         session_id=session.session_id,
                         tree_id=tree_id,
@@ -934,7 +945,7 @@ class SMBv2Connection(SMBConnection):
         query_directory_response: SMBv2Message = await (
             await self._send_message(
                 request_message=QueryDirectoryRequest(
-                    header=SMB210SyncHeader(
+                    header=SMB210SyncRequestHeader(
                         command=SMBv2Command.SMB2_QUERY_DIRECTORY,
                         session_id=session.session_id,
                         tree_id=tree_id,
@@ -969,7 +980,7 @@ class SMBv2Connection(SMBConnection):
         tree_id: int,
         completion_filter_flag: Optional[CompletionFilterFlag] = None,
         watch_tree: bool = False
-    ):
+    ) -> Awaitable[SMBv2Message]:
         if completion_filter_flag is None:
             completion_filter_flag = CompletionFilterFlag()
             completion_filter_flag.set_all()
@@ -977,12 +988,10 @@ class SMBv2Connection(SMBConnection):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        # create_task(
-
-        r = await (
+        change_notify_response = await (
             await self._send_message(
                 ChangeNotifyRequest(
-                    header=SMB210SyncHeader(
+                    header=SMB210SyncRequestHeader(
                         command=SMBv2Command.SMB2_CHANGE_NOTIFY,
                         session_id=session.session_id,
                         tree_id=tree_id,
@@ -996,5 +1005,14 @@ class SMBv2Connection(SMBConnection):
             )
         )
 
-        print(r)
-        # )
+        if not isinstance(change_notify_response, ChangeNotifyResponse):
+            # TODO: Use proper exception.
+            raise ValueError
+
+        if not isinstance(change_notify_response.header, SMBv2AsyncHeader):
+            # TODO: Use proper exception.
+            raise ValueError
+
+        return self._message_id_and_async_id_to_response_message_future[
+            (change_notify_response.header.message_id, change_notify_response.header.async_id)
+        ]

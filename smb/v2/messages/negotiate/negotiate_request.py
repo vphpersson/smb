@@ -13,7 +13,6 @@ from smb.v2.capabilities import CapabilitiesFlag
 from smb.v2.negotiate_context import NegotiateContextList
 from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateRequestError,\
     NoNegotiateDialectsError, NegotiateRequestCapabilitiesNotEmpty, NotImplementedNegotiateRequestError
-# from smb.smb_message import SMBRequestMessage
 
 
 # TODO: Is this missing `structure_size`?

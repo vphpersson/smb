@@ -5,6 +5,8 @@ from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntEnum, IntFlag
 from abc import ABC
 
+from msdsalgs.utils import make_mask_class
+
 from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedReadRequestError, InvalidReadRequestFlagError,\
@@ -12,8 +14,6 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedReadRequestErro
     InvalidReadRequestReadChannelLengthError
 from smb.v2.file_id import FileId
 from smb.v2.dialect import Dialect
-
-from msdsalgs.utils import make_mask_class
 
 
 class ReadRequestFlagMask(IntFlag):

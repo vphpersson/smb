@@ -7,7 +7,6 @@ from math import ceil
 from smb.smb_message import SMBMessage
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command, SMBv2RequestHeader, SMBv2ResponseHeader
 from smb.exceptions import IncorrectStructureSizeError
-# from smb.smb_message import SMBResponseMessage
 
 
 # TODO: Does this make sense?
@@ -39,29 +38,21 @@ class SMBv2Message(SMBMessage, ABC):
     @classmethod
     def from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
 
-        from smb.v2.messages.negotiate.negotiate_request import NegotiateRequest
-        from smb.v2.messages.negotiate.negotiate_response import NegotiateResponse
-        from smb.v2.messages.session_setup.session_setup_request import SessionSetupRequest
-        from smb.v2.messages.session_setup.session_setup_response import SessionSetupResponse
-        from smb.v2.messages.tree_connect.tree_connect_request import TreeConnectRequest
-        from smb.v2.messages.tree_connect.tree_connect_response import TreeConnectResponse
-        from smb.v2.messages.create.create_request import CreateRequest
-        from smb.v2.messages.create.create_response import CreateResponse
-        from smb.v2.messages.read.read_request import ReadRequest
-        from smb.v2.messages.read.read_response import ReadResponse
-        from smb.v2.messages.query_directory.query_directory_request import QueryDirectoryRequest
-        from smb.v2.messages.query_directory.query_directory_response import QueryDirectoryResponse
-        from smb.v2.messages.close.close_request import CloseRequest
-        from smb.v2.messages.close.close_response import CloseResponse
-        from smb.v2.messages.tree_disconnect.tree_disconnect_request import TreeDisconnectRequest
-        from smb.v2.messages.tree_disconnect.tree_disconnect_response import TreeDisconnectResponse
-        from smb.v2.messages.logoff.logoff_request import LogoffRequest
-        from smb.v2.messages.logoff.logoff_response import LogoffResponse
+        # Import the SMBv2 messages to make sure that they are registered in the map.
+        from smb.v2.messages.negotiate import NegotiateRequest, NegotiateResponse
+        from smb.v2.messages.session_setup import SessionSetupRequest, SessionSetupResponse
+        from smb.v2.messages.tree_connect import TreeConnectRequest, TreeConnectResponse
+        from smb.v2.messages.create import CreateRequest, CreateResponse
+        from smb.v2.messages.read import ReadRequest, ReadResponse
+        from smb.v2.messages.query_directory import QueryDirectoryRequest, QueryDirectoryResponse
+        from smb.v2.messages.close import CloseRequest, CloseResponse
+        from smb.v2.messages.tree_disconnect import TreeDisconnectRequest, TreeDisconnectResponse
+        from smb.v2.messages.logoff import LogoffRequest, LogoffResponse
 
         lookup_key_tuple: Tuple[SMBv2Command, bool] = (header.command, header.flags.server_to_redir)
 
         if cls != SMBv2Message:
-            if lookup_key_tuple != (cls._command, issubclass(cls, SMBResponseMessage)):
+            if lookup_key_tuple != (cls._command, issubclass(cls, SMBv2ResponseMessage)):
                 # TODO: Use proper exception.
                 raise ValueError
             return cls._from_bytes_and_header(data=data, header=header)

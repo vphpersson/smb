@@ -14,8 +14,6 @@ from smb.v2.file_id import FileId
 
 
 class CloseFlagMask(IntFlag):
-    # NOTE: Not actually part of the flag.
-    SMB2_CLOSE_FLAG_NONE = 0x00
     SMB2_CLOSE_FLAG_POSTQUERY_ATTRIB = 0x0001
 
 

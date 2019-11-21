@@ -15,6 +15,7 @@ from spnego.negotiation_tokens.neg_token_init import NegTokenInit
 from spnego.negotiation_tokens.neg_token_resp import NegTokenResp
 from spnego.token_attributes import NegTokenRespNegState
 from asn1.oid import OID
+from msdsalgs.fscc.file_information_classes import FileDirectoryInformation, FileIdFullDirectoryInformation
 
 from smb.v2.client import PREFERRED_DIALECT, CLIENT_GUID, SECURITY_MODE, REQUIRE_MESSAGE_SIGNING
 from smb.smb_connection import SMBConnection, NegotiatedDetails
@@ -33,8 +34,7 @@ from smb.v2.messages.create.create_request import CreateRequest
 from smb.v2.messages.create.create_response import CreateResponse
 from smb.v2.messages.query_directory.query_directory_request import QueryDirectoryRequest, FileInformationClass,\
     QueryDirectoryFlag
-from smb.v2.messages.query_directory.query_directory_response import QueryDirectoryResponse, FileDirectoryInformation, \
-    FileIdFullDirectoryInformation
+from smb.v2.messages.query_directory.query_directory_response import QueryDirectoryResponse
 from smb.v2.messages.read.read_request import ReadRequest210
 from smb.v2.messages.read.read_response import ReadResponse
 from smb.v2.messages.close.close_request import CloseRequest, CloseFlag
@@ -240,6 +240,8 @@ class SMBv2Connection(SMBConnection):
             if isinstance(incoming_message.header, SMBv2AsyncHeader):
                 async_key: Tuple[int, int] = (incoming_message.header.message_id, incoming_message.header.async_id)
 
+                # A `STATUS_PENDING` response contains the async id for the message that will eventually contain
+                # the requested data.
                 if incoming_message.header.status.real_status is not Status.STATUS_PENDING:
                     # TODO: It would be nice if the data that resolve is message-specific.
                     self._message_id_and_async_id_to_response_message_future[async_key].set_result(incoming_message)
@@ -251,6 +253,7 @@ class SMBv2Connection(SMBConnection):
                     async_response_message_future.add_done_callback(
                         lambda _: self._message_id_and_async_id_to_response_message_future.pop(async_key)
                     )
+
             self._outstanding_request_message_id_to_smb_message_request.pop(incoming_message.header.message_id)
             # TODO: Pop the cancel id map.
             self._outstanding_request_message_id_to_response_message_future.pop(incoming_message.header.message_id).set_result(incoming_message)
@@ -496,7 +499,7 @@ class SMBv2Connection(SMBConnection):
         """
         Terminate a session.
 
-        :param session: The session which to terminate.
+        :param session: The session to be terminated.
         :return: None
         """
 
@@ -582,6 +585,13 @@ class SMBv2Connection(SMBConnection):
         return tree_connect_response.header.tree_id, tree_connect_response.share_type
 
     async def tree_disconnect(self, session: SMBv2Session, tree_id: int):
+        """
+        Request that a tree connect is disconnected.
+
+        :param session: An SMB session that has access to the tree connect.
+        :param tree_id: The ID of the tree connect to be disconnected.
+        :return: None
+        """
 
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
@@ -610,7 +620,7 @@ class SMBv2Connection(SMBConnection):
         server_address: Optional[Union[str, IPv4Address, IPv6Address]] = None
     ) -> AsyncContextManager[Tuple[int, ShareType]]:
         """
-        Obtain access to a particular share on a remote server and disconnect from it once consumed.
+        Obtain access to a particular share on a remote server and disconnect once finished with it.
 
         :param share_name: The name of the share to obtain access to.
         :param session: An SMB session with which to access the share.
@@ -624,7 +634,7 @@ class SMBv2Connection(SMBConnection):
             server_address=server_address
         )
         yield tree_id, share_type
-        # create_task(await self.tree_disconnect(session=session, tree_id=tree_id))
+
         await self.tree_disconnect(session=session, tree_id=tree_id)
 
     async def _create(
@@ -732,10 +742,13 @@ class SMBv2Connection(SMBConnection):
         create_context_list: CreateContextList = None
     ) -> AsyncContextManager[CreateResponse]:
         """
+        Create/open a file or directory in an SMB share and close it once finished with it.
+
+        The default parameters reflect read only access to an existing file.
 
         :param path: The share relative path of the file or directory which to operate on.
-        :param session: An SMB session with which to access the file.
-        :param tree_id: The tree id of the share in which the file or directory resides or will reside.
+        :param session: An SMB session with to access the file or directory.
+        :param tree_id: The tree ID of the SMB share where the specified file or directory will be or is located.
         :param requested_oplock_level:
         :param impersonation_level:
         :param desired_access:
@@ -787,6 +800,7 @@ class SMBv2Connection(SMBConnection):
     ):
         """
 
+
         :param path:
         :param session:
         :param tree_id:
@@ -823,12 +837,22 @@ class SMBv2Connection(SMBConnection):
 
     def read(
         self,
-        session: SMBv2Session,
-        tree_id: int,
         file_id: FileId,
         file_size: int,
+        session: SMBv2Session,
+        tree_id: int,
         use_generator: bool = False
     ) -> Union[Awaitable[bytes], AsyncGenerator[bytes, None]]:
+        """
+        Read data from a file in an SMB share.
+
+        :param file_id: An identifier of the file which to read.
+        :param file_size: The number of bytes to read from the file.
+        :param session: An SMB session with access to the file.
+        :param tree_id: The tree ID of the SMB share that stores the file.
+        :param use_generator: Whether to return the read data via a generator.
+        :return: The data of the file or a generator that yields the data.
+        """
 
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
@@ -883,6 +907,19 @@ class SMBv2Connection(SMBConnection):
         remaining_bytes: int = 0,
         flags: WriteFlag = WriteFlag()
     ) -> int:
+        """
+        Write data to a file in an SMB share.
+
+        :param write_data: The data to be written.
+        :param file_id: An identifier of the file whose data is to be written.
+        :param session: An SMB session with access to the file.
+        :param tree_id: The tree id of the SMB share that stores the file.
+        :param offset: The offset, in bytes, of where to write the data in the destination file.
+        :param remaining_bytes: The number of subsequent bytes the client intends to write to the file after this
+            operation completes. Not binding.
+        :param flags: Flags indicating how to process the operation.
+        :return: The number of bytes written.
+        """
 
         # TODO: Support more dialects.
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
@@ -915,6 +952,7 @@ class SMBv2Connection(SMBConnection):
 
         return write_response.count
 
+    # TODO: Extend the return type once more types are supported.
     async def query_directory(
         self,
         file_id: FileId,
@@ -926,6 +964,21 @@ class SMBv2Connection(SMBConnection):
         file_index: int = 0,
         output_buffer_length: int = 256_000
     ) -> List[Union[FileDirectoryInformation, FileIdFullDirectoryInformation]]:
+        """
+        Obtain information about a directory in an SMB share.
+
+        :param file_id: An identifier for the directory about which to obtain information.
+        :param file_information_class: A specification of the type of information to obtain.
+        :param query_directory_flag: A flag indicating how the operation is to be processed.
+        :param session: An SMB session with access to the directory.
+        :param tree_id: The tree id of the SMB share that stores the directory.
+        :param file_name_pattern: A search pattern specifying which entries in the the directory to retrieve information
+            about.
+        :param file_index: The byte offset within the directory, indicating the position at which to resume the
+            enumeration.
+        :param output_buffer_length: The maximum number of bytes the server is allowed to return in the response.
+        :return: A collection of information entries about the content of the directory.
+        """
 
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
@@ -968,7 +1021,21 @@ class SMBv2Connection(SMBConnection):
         tree_id: int,
         completion_filter_flag: Optional[CompletionFilterFlag] = None,
         watch_tree: bool = False
-    ) -> Awaitable[SMBv2Message]:
+    ) -> Awaitable[ChangeNotifyResponse]:
+        """
+        Monitor a directory in an SMB share for changes and notify.
+
+        Only one notification is sent per change notify request. The notification is sent asynchronously.
+
+        :param file_id: An identifier for the directory to be monitored for changes.
+        :param session: An SMB session with access to the directory to be monitored.
+        :param tree_id: The tree ID of the share that stores the directory to be monitored.
+        :param completion_filter_flag: A flag that specifies which type of changes to notify about.
+        :param watch_tree: Whether to monitor the subdirectories of the directory.
+        :return: A `Future` object that resolves to a `ChangeNotifyResponse` containing a notification.
+        """
+        # TODO: Update doc string once async responses are message-specific.
+
         if completion_filter_flag is None:
             completion_filter_flag = CompletionFilterFlag()
             completion_filter_flag.set_all()
@@ -1001,6 +1068,7 @@ class SMBv2Connection(SMBConnection):
             # TODO: Use proper exception.
             raise ValueError
 
+        # TODO: It is here I should register a done callback popping the dict, yes?
         return self._message_id_and_async_id_to_response_message_future[
             (change_notify_response.header.message_id, change_notify_response.header.async_id)
         ]

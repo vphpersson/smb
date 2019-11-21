@@ -2,7 +2,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 from struct import pack as struct_pack, unpack as struct_unpack, error as struct_error
-from enum import IntEnum, IntFlag
+from enum import IntFlag
+
+from msdsalgs.utils import make_mask_class
+from msdsalgs.fscc.file_information_classes import FileInformationClass
 
 from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
 from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
@@ -10,18 +13,6 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedQueryDirectoryR
     InvalidQueryDirectoryFileIndexValueError, InvalidQueryDirectoryFlagsValueError,\
     InvalidQueryDirectoryRequestFileInformationClassValueError
 from smb.v2.file_id import FileId
-
-from msdsalgs.utils import make_mask_class
-
-
-# TODO: These should be in caps, should they not?
-class FileInformationClass(IntEnum):
-    FileDirectoryInformation = 0x01
-    FileFullDirectoryInformation = 0x02
-    FileIdFullDirectoryInformation = 0x26
-    FileBothDirectoryInformation = 0x03
-    FileIdBothDirectoryInformation = 0x25
-    FileNamesInformation = 0x0C
 
 
 class QueryDirectoryFlagMask(IntFlag):

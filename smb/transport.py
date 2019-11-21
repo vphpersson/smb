@@ -16,6 +16,9 @@ class Transport:
 
     @classmethod
     def from_bytes(cls, data: bytes, **smb_message_options) -> Transport:
+
+        # TODO: The first byte  is supposed to be `b'\x00'`. Check.
+
         try:
             stream_protocol_length: int = struct_unpack('>I', b'\x00' + data[1:4])[0]
         except struct_error as e:

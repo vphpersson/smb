@@ -106,7 +106,6 @@ class SMBConnection(ABC):
             timeout=self._timeout_in_seconds
         )
 
-        # TODO: What to do with these tasks?
         self._incoming_task = asyncio_create_task(coro=self._handle_incoming_bytes())
         self._outgoing_task = asyncio_create_task(coro=self._handle_outgoing_bytes())
 

@@ -10,7 +10,6 @@ from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
 @dataclass
 @register_smbv2_message
 class TreeDisconnectResponse(SMBv2ResponseMessage):
-
     structure_size: ClassVar[int] = 4
     _reserved: ClassVar[bytes] = 2 * b'\x00'
     _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_DISCONNECT

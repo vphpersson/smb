@@ -129,6 +129,7 @@ class SMB210NegotiateResponse(NegotiateResponse):
     pass
 
 
+# TODO: Is this reasonable?
 @dataclass
 class SMB2WildcardNegotiateResponse(NegotiateResponse):
     pass

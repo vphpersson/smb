@@ -8,8 +8,8 @@ from struct import unpack as struct_unpack, pack as struct_pack
 from msdsalgs.time import filetime_to_datetime
 from msdsalgs.utils import make_mask_class
 
-from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
-from smb.v2.smbv2_header import SMBv2Header, SMB311SyncRequestHeader, SMB311AsyncHeader, SMBv2Command
+from smb.v2.messages.message import SMBv2ResponseMessage, register_smbv2_message
+from smb.v2.header import SMBv2Header, SMB311SyncRequestHeader, SMB311AsyncHeader, SMBv2Command
 from smb.v2.messages.create.create_context import CreateContextList
 from smb.v2.messages.create.create_request import OplockLevel, FileAttributes
 from smb.v2.file_id import FileId

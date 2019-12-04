@@ -5,7 +5,7 @@ from typing import ClassVar, Tuple, Dict, Type
 from math import ceil
 
 from smb.smb_message import SMBMessage
-from smb.v2.smbv2_header import SMBv2Header, SMBv2Command, SMBv2RequestHeader, SMBv2ResponseHeader
+from smb.v2.header import SMBv2Header, SMBv2Command, SMBv2RequestHeader, SMBv2ResponseHeader
 from smb.exceptions import IncorrectStructureSizeError
 
 

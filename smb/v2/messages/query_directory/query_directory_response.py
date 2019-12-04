@@ -6,8 +6,8 @@ from struct import pack as struct_pack, unpack as struct_unpack
 from msdsalgs.utils import extract_elements
 from msdsalgs.fscc.file_information_classes import FileDirectoryInformation, FileIdFullDirectoryInformation
 
-from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
-from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
+from smb.v2.messages.message import SMBv2ResponseMessage, register_smbv2_message
+from smb.v2.header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedQueryDirectoryResponseError
 
 

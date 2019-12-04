@@ -7,8 +7,8 @@ from abc import ABC
 
 from msdsalgs.utils import make_mask_class
 
-from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
-from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
+from smb.v2.messages.message import SMBv2RequestMessage, register_smbv2_message
+from smb.v2.header import SMBv2Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedReadRequestError, InvalidReadRequestFlagError,\
     InvalidReadRequestChannelError, InvalidReadRequestReadChannelInfoOffsetError,\
     InvalidReadRequestReadChannelLengthError

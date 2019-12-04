@@ -20,7 +20,7 @@ class SMBHeader(ABC):
     @classmethod
     def from_bytes(cls, data: bytes, **version_specific_options) -> SMBHeader:
         from smb.v1.smbv1_header import SMBv1Header
-        from smb.v2.smbv2_header import SMBv2Header
+        from smb.v2.header import SMBv2Header
 
         protocol_identifier = ProtocolIdentifier(data[:4])
 

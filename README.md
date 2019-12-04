@@ -12,8 +12,8 @@ from asyncio import run as asyncio_run, gather as asyncio_gather
 from typing import List, Coroutine, Union, Tuple, Callable, Optional
 from pathlib import PureWindowsPath
 
-from smb.v2.smbv2_connection import SMBv2Connection
-from smb.v2.smbv2_session import SMBv2Session
+from smb.v2.connection import SMBv2Connection
+from smb.v2.session import SMBv2Session
 from smb.v2.messages.query_directory.query_directory_request import FileInformationClass, QueryDirectoryFlag
 from smb.v2.messages.query_directory.query_directory_response import FileDirectoryInformation, FileInformation
 

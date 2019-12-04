@@ -17,49 +17,50 @@ from spnego.token_attributes import NegTokenRespNegState
 from asn1.oid import OID
 from msdsalgs.fscc.file_information_classes import FileDirectoryInformation, FileIdFullDirectoryInformation
 
-from smb.v2.client import PREFERRED_DIALECT, CLIENT_GUID, SECURITY_MODE, REQUIRE_MESSAGE_SIGNING
+
 from smb.smb_connection import SMBConnection, NegotiatedDetails
-from smb.v2.negotiate_context import HashAlgorithm, Cipher, CompressionAlgorithm
 from smb.transport import Transport
 from smb.v2.dialect import Dialect
-from smb.v2.smbv2_message import SMBv2Message, calculate_credit_charge
-from smb.v2.messages.negotiate.negotiate_request import NegotiateRequest
-from smb.v2.messages.negotiate.negotiate_response import NegotiateResponse, SMB202NegotiateResponse, \
-    SMB210NegotiateResponse, SMB300NegotiateResponse, SMB302NegotiateResponse, SMB311NegotiateResponse
-from smb.v2.messages.session_setup.session_setup_request import SessionSetupRequest
-from smb.v2.messages.session_setup.session_setup_response import SessionSetupResponse
-from smb.v2.messages.tree_connect.tree_connect_request import TreeConnectRequest210
-from smb.v2.messages.tree_connect.tree_connect_response import TreeConnectResponse, ShareType
-from smb.v2.messages.create.create_request import CreateRequest
-from smb.v2.messages.create.create_response import CreateResponse
-from smb.v2.messages.query_directory.query_directory_request import QueryDirectoryRequest, FileInformationClass,\
+from smb.v2.client import PREFERRED_DIALECT, CLIENT_GUID, SECURITY_MODE, REQUIRE_MESSAGE_SIGNING
+from smb.v2.negotiate_context import HashAlgorithm, Cipher, CompressionAlgorithm
+
+from smb.v2.messages.message import SMBv2Message, calculate_credit_charge
+from smb.v2.messages.negotiate import NegotiateRequest, NegotiateResponse
+from smb.v2.messages.session_setup import SessionSetupRequest, SessionSetupResponse
+from smb.v2.messages.tree_connect import TreeConnectRequest210, TreeConnectResponse, ShareType
+from smb.v2.messages.create import CreateRequest, CreateResponse, OplockLevel, ImpersonationLevel, FileAttributes,\
+    ShareAccess, CreateDisposition, CreateOptions
+from smb.v2.messages.query_directory import QueryDirectoryRequest, QueryDirectoryResponse, FileInformationClass, \
     QueryDirectoryFlag
-from smb.v2.messages.query_directory.query_directory_response import QueryDirectoryResponse
-from smb.v2.messages.read.read_request import ReadRequest210
-from smb.v2.messages.read.read_response import ReadResponse
-from smb.v2.messages.close.close_request import CloseRequest, CloseFlag
-from smb.v2.messages.close.close_response import CloseResponse
-from smb.v2.messages.tree_disconnect.tree_disconnect_request import TreeDisconnectRequest
-from smb.v2.messages.tree_disconnect.tree_disconnect_response import TreeDisconnectResponse
-from smb.v2.messages.logoff.logoff_request import LogoffRequest
-from smb.v2.messages.logoff.logoff_response import LogoffResponse
-from smb.v2.messages.write.write_request import WriteRequest210, WriteFlag
-from smb.v2.messages.write.write_response import WriteResponse
-from smb.v2.messages.change_notify.change_notify_request import ChangeNotifyRequest, CompletionFilterFlag, \
+from smb.v2.messages.read import ReadRequest210, ReadResponse
+from smb.v2.messages.write import WriteRequest210, WriteResponse, WriteFlag
+from smb.v2.messages.change_notify import ChangeNotifyRequest, ChangeNotifyResponse, CompletionFilterFlag, \
     ChangeNotifyFlag
-from smb.v2.messages.change_notify.change_notify_response import ChangeNotifyResponse
+from smb.v2.messages.close import CloseRequest, CloseResponse, CloseFlag
+from smb.v2.messages.tree_disconnect import TreeDisconnectRequest, TreeDisconnectResponse
+from smb.v2.messages.logoff import LogoffRequest, LogoffResponse
+
+# TODO: Reconsider whether this is necessary.
+from smb.v2.messages.negotiate.negotiate_response import SMB202NegotiateResponse, \
+    SMB210NegotiateResponse, SMB300NegotiateResponse, SMB302NegotiateResponse, SMB311NegotiateResponse
+
+
+
+
+
+
+
+
 from smb.v2.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
     CompressionCapabilitiesContext, NetnameNegotiateContextIdContext
-from smb.v2.smbv2_header import SMBv2Header, SMBv2Command, SMBv2AsyncHeader, SMB210SyncRequestHeader
+from smb.v2.header import SMBv2Header, SMBv2Command, SMBv2AsyncHeader, SMB210SyncRequestHeader
 from smb.status import Status
 from smb.v2.security_mode import SecurityMode
 from smb.v2.tree_connect_object import TreeConnectObject
-from smb.v2.messages.create.create_request import OplockLevel, ImpersonationLevel, FileAttributes,\
-    ShareAccess, CreateDisposition, CreateOptions
 from smb.v2.messages.create.create_context import CreateContextList
 from smb.v2.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
 from smb.v2.file_id import FileId
-from smb.v2.smbv2_session import SMB210Session
+from smb.v2.session import SMB210Session
 
 
 class CreditsNotAvailable(Exception):
@@ -145,7 +146,7 @@ class SMBv2Connection(SMBConnection):
         :param timeout_in_seconds: The number of seconds to wait for a connection before timing out.
         """
 
-        from smb.v2.smbv2_session import SMBv2Session
+        from smb.v2.session import SMBv2Session
 
         super().__init__(host_address=host_address, port_number=port_number, timeout_in_seconds=timeout_in_seconds)
         # TODO: Not sure which UUID function to use.

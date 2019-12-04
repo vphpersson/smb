@@ -4,8 +4,8 @@ from typing import ClassVar
 from struct import pack as struct_pack, unpack as struct_unpack
 from enum import IntFlag
 
-from smb.v2.smbv2_message import SMBv2RequestMessage, register_smbv2_message
-from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
+from smb.v2.messages.message import SMBv2RequestMessage, register_smbv2_message
+from smb.v2.header import SMBv2Header, SMBv2Command
 from smb.v2.file_id import FileId
 from smb.exceptions import IncorrectStructureSizeError
 

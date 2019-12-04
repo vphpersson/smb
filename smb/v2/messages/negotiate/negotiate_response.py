@@ -8,8 +8,8 @@ from typing import ClassVar
 
 from msdsalgs.time import filetime_to_datetime
 
-from smb.v2.smbv2_message import SMBv2ResponseMessage, register_smbv2_message
-from smb.v2.smbv2_header import SMBv2Header, SMBv2Command
+from smb.v2.messages.message import SMBv2ResponseMessage, register_smbv2_message
+from smb.v2.header import SMBv2Header, SMBv2Command
 from smb.v2.security_mode import SecurityMode
 from smb.v2.dialect import Dialect
 from smb.v2.capabilities import CapabilitiesFlag

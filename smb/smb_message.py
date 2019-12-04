@@ -20,8 +20,8 @@ class SMBMessage(ABC):
 
         from smb.v1.smbv1_header import SMBv1Header
         from smb.v1.smbv1_message import SMBv1Message
-        from smb.v2.smbv2_header import SMBv2Header
-        from smb.v2.smbv2_message import SMBv2Message
+        from smb.v2.header import SMBv2Header
+        from smb.v2.messages.message import SMBv2Message
 
         version_specific_header_options = version_specific_header_options or {}
 

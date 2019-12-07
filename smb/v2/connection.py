@@ -17,13 +17,11 @@ from spnego.token_attributes import NegTokenRespNegState
 from asn1.oid import OID
 from msdsalgs.fscc.file_information_classes import FileDirectoryInformation, FileIdFullDirectoryInformation
 
-
 from smb.smb_connection import SMBConnection, NegotiatedDetails
 from smb.transport import Transport
 from smb.v2.dialect import Dialect
 from smb.v2.client import PREFERRED_DIALECT, CLIENT_GUID, SECURITY_MODE, REQUIRE_MESSAGE_SIGNING
 from smb.v2.negotiate_context import HashAlgorithm, Cipher, CompressionAlgorithm
-
 from smb.v2.messages.message import SMBv2Message, calculate_credit_charge
 from smb.v2.messages.negotiate import NegotiateRequest, NegotiateResponse
 from smb.v2.messages.session_setup import SessionSetupRequest, SessionSetupResponse
@@ -39,18 +37,9 @@ from smb.v2.messages.change_notify import ChangeNotifyRequest, ChangeNotifyRespo
 from smb.v2.messages.close import CloseRequest, CloseResponse, CloseFlag
 from smb.v2.messages.tree_disconnect import TreeDisconnectRequest, TreeDisconnectResponse
 from smb.v2.messages.logoff import LogoffRequest, LogoffResponse
-
 # TODO: Reconsider whether this is necessary.
 from smb.v2.messages.negotiate.negotiate_response import SMB202NegotiateResponse, \
     SMB210NegotiateResponse, SMB300NegotiateResponse, SMB302NegotiateResponse, SMB311NegotiateResponse
-
-
-
-
-
-
-
-
 from smb.v2.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
     CompressionCapabilitiesContext, NetnameNegotiateContextIdContext
 from smb.v2.header import SMBv2Header, SMBv2Command, SMBv2AsyncHeader, SMB210SyncRequestHeader

@@ -51,6 +51,8 @@ from smb.v2.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
 from smb.v2.file_id import FileId
 from smb.v2.session import SMB210Session
 
+from functools import partial
+from typing import Any
 
 class CreditsNotAvailable(Exception):
     def __init__(self, num_requested_credits: int):
@@ -1062,3 +1064,57 @@ class SMBv2Connection(SMBConnection):
         return self._message_id_and_async_id_to_response_message_future[
             (change_notify_response.header.message_id, change_notify_response.header.async_id)
         ]
+
+    @asynccontextmanager
+    async def make_smbv2_transport(
+        self,
+        session: SMBv2Session,
+        # TODO: Is this the correct name?
+        pipe: str,
+        # TODO: This argument does not make much sense to me...
+        server_address: Optional[Union[str, IPv4Address, IPv6Address]] = None,
+    ):
+
+        async with self.tree_connect(share_name='IPC$', session=session, server_address=server_address) as (tree_id, share_type):
+            if share_type is not ShareType.SMB2_SHARE_TYPE_PIPE:
+                # TODO: Use proper exception.
+                raise ValueError
+
+            create_options: Dict[str, Any] = dict(
+                path=pipe,
+                session=session,
+                tree_id=tree_id,
+                requested_oplock_level=OplockLevel.SMB2_OPLOCK_LEVEL_NONE,
+                desired_access=FilePipePrinterAccessMask(file_read_data=True, file_write_data=True),
+                file_attributes=FileAttributes(normal=True),
+                # TODO: Why does Impacket only have the `read` attribute set to `True` (not `write`)?
+                share_access=ShareAccess(read=True, write=True),
+                create_disposition=CreateDisposition.FILE_OPEN,
+                create_options=CreateOptions(non_directory_file=True)
+            )
+
+            async with self.create(**create_options) as create_response:
+
+                # TODO: Not sure whether `read` should accept an argument specifying the maximum number of bytes to
+                #   read.
+                yield (
+                    partial(
+                        self.read,
+                        file_id=create_response.file_id,
+                        # TODO: Not sure about this value.
+                        file_size=self.negotiated_details.max_read_size,
+                        session=session,
+                        tree_id=tree_id,
+                        use_generator=False
+                    ),
+                    partial(
+                        self.write,
+                        file_id=create_response.file_id,
+                        session=session,
+                        tree_id=tree_id,
+                        offset=0,
+                        remaining_bytes=0,
+                        flags=WriteFlag()
+                    )
+                )
+

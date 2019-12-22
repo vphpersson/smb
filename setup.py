@@ -3,16 +3,16 @@ setup(
     name='smb',
     version='0.1',
     packages=find_packages(),
+    dependency_links=[
+        'http://github.com/vphpersson/msdsalgs/tarball/master#egg=msdsalgs',
+        'http://github.com/vphpersson/ntlm/tarball/master#egg=ntlm',
+        'http://github.com/vphpersson/spnego/tarball/master#egg=spnego',
+        'http://github.com/vphpersson/asn1/tarball/master#egg=asn1'
+    ],
     install_requires=[
         'msdsalgs',
         'ntlm',
         'spnego',
         'asn1'
     ],
-    dependency_links=[
-        'git+https://github.com/vphpersson/msdsalgs#egg=msdsalgs',
-        'git+https://github.com/vphpersson/ntlm#egg=ntlm',
-        'git+https://github.com/vphpersson/spnego#egg=spnego',
-        'git+https://github.com/vphpersson/asn1#egg=asn1'
-    ]
 )

@@ -6,7 +6,7 @@ from math import ceil
 
 from smb.smb_message import SMBMessage
 from smb.v2.header import SMBv2Header, SMBv2Command, SMBv2RequestHeader, SMBv2ResponseHeader
-from smb.exceptions import IncorrectStructureSizeError
+from smb.exceptions import IncorrectStructureSizeError, MalformedSMBv2MessageError
 
 
 # TODO: Does this make sense?
@@ -48,16 +48,20 @@ class SMBv2Message(SMBMessage, ABC):
         from smb.v2.messages.close import CloseRequest, CloseResponse
         from smb.v2.messages.tree_disconnect import TreeDisconnectRequest, TreeDisconnectResponse
         from smb.v2.messages.logoff import LogoffRequest, LogoffResponse
+        from smb.v2.messages.error import ErrorResponse
 
         lookup_key_tuple: Tuple[SMBv2Command, bool] = (header.command, header.flags.server_to_redir)
 
-        if cls != SMBv2Message:
-            if lookup_key_tuple != (cls._command, issubclass(cls, SMBv2ResponseMessage)):
-                # TODO: Use proper exception.
-                raise ValueError
-            return cls._from_bytes_and_header(data=data, header=header)
-        else:
-            return cls._command_and_type_to_class[lookup_key_tuple]._from_bytes_and_header(data=data, header=header)
+        try:
+            if cls != SMBv2Message:
+                if lookup_key_tuple != (cls._command, issubclass(cls, SMBv2ResponseMessage)):
+                    # TODO: Use proper exception.
+                    raise ValueError
+                return cls._from_bytes_and_header(data=data, header=header)
+            else:
+                return cls._command_and_type_to_class[lookup_key_tuple]._from_bytes_and_header(data=data, header=header)
+        except MalformedSMBv2MessageError:
+            return ErrorResponse._from_bytes_and_header(data=data, header=header)
 
 
 @dataclass

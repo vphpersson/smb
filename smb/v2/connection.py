@@ -248,7 +248,13 @@ class SMBv2Connection(SMBConnection):
 
             self._outstanding_request_message_id_to_smb_message_request.pop(incoming_message.header.message_id)
             # TODO: Pop the cancel id map.
-            self._outstanding_request_message_id_to_response_message_future.pop(incoming_message.header.message_id).set_result(incoming_message)
+
+            response_message_future: Future = self._outstanding_request_message_id_to_response_message_future.pop(
+                incoming_message.header.message_id
+            )
+
+            if not response_message_future.cancelled():
+                response_message_future.set_result(incoming_message)
 
     async def _send_message(self, request_message: SMBv2Message) -> Awaitable[SMBv2Message]:
         """

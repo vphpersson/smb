@@ -1,6 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from struct import unpack as struct_unpack, error as struct_error, pack as struct_pack
+from typing import Union, Optional, Final
+from ipaddress import IPv4Address, IPv6Address
+from asyncio import StreamWriter, StreamReader, open_connection as asyncio_open_connection, wait_for as asyncio_wait_for
 
 from smb.smb_message import SMBMessage
 
@@ -39,3 +42,32 @@ class Transport:
 
     def __bytes__(self) -> bytes:
         return struct_pack('>I', self.stream_protocol_length) + bytes(self.smb_message)
+
+
+# TODO: Move somewhere -- but where?
+@dataclass
+class TCPIPTransport:
+    address: Final[Union[str, IPv4Address, IPv6Address]]
+    port_number: Final[int]
+    timeout_in_seconds: Final[float] = 3.0
+    read_size: int = 4096
+
+    def __post_init__(self):
+        self.reader: Optional[StreamReader] = None
+        self.writer: Optional[StreamWriter] = None
+
+    async def write(self, data: bytes) -> None:
+        self.writer.write(data)
+        await self.writer.drain()
+
+    async def __aenter__(self):
+        self.reader, self.writer = await asyncio_wait_for(
+            fut=asyncio_open_connection(host=self.address, port=self.port_number),
+            timeout=self.timeout_in_seconds
+        )
+
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.writer.close()
+        await self.writer.wait_closed()

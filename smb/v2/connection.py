@@ -2,12 +2,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from abc import ABC
 from uuid import UUID, uuid1
-from typing import Set, Dict, Optional, Tuple, Awaitable, Union, AsyncGenerator, AsyncContextManager, List
+from typing import Set, Dict, Optional, Tuple, Awaitable, Union, AsyncGenerator, AsyncContextManager, List, Any, Final
 from asyncio import Future, create_task
 from ipaddress import IPv4Address, IPv6Address
 from enum import Enum, auto
 from contextlib import asynccontextmanager
 from pathlib import PureWindowsPath
+from functools import partial
 
 from ntlm.messages.challenge import ChallengeMessage as NTLMChallengeMessage
 from ntlm.utils import make_ntlm_context
@@ -18,7 +19,7 @@ from asn1.oid import OID
 from msdsalgs.fscc.file_information_classes import FileDirectoryInformation, FileIdFullDirectoryInformation
 
 from smb.smb_connection import SMBConnection, NegotiatedDetails
-from smb.transport import Transport
+from smb.transport import Transport, TCPIPTransport
 from smb.v2.dialect import Dialect
 from smb.v2.client import PREFERRED_DIALECT, CLIENT_GUID, SECURITY_MODE, REQUIRE_MESSAGE_SIGNING
 from smb.v2.negotiate_context import HashAlgorithm, Cipher, CompressionAlgorithm
@@ -51,8 +52,6 @@ from smb.v2.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
 from smb.v2.file_id import FileId
 from smb.v2.session import SMB210Session
 
-from functools import partial
-from typing import Any
 
 class CreditsNotAvailable(Exception):
     def __init__(self, num_requested_credits: int):
@@ -125,21 +124,17 @@ class SessionSetupAuthenticationMethod(Enum):
 
 class SMBv2Connection(SMBConnection):
 
-    def __init__(
-        self,
-        host_address: Union[str, IPv4Address, IPv6Address],
-        port_number: int = 445,
-        timeout_in_seconds: float = 3.0
-    ):
-        """
-        :param host_address: The address of the host to connect to.
-        :param port_number: The port number that the remote SMB service uses.
-        :param timeout_in_seconds: The number of seconds to wait for a connection before timing out.
-        """
+    def __init__(self, tcp_ip_transport: TCPIPTransport):
 
         from smb.v2.session import SMBv2Session
 
-        super().__init__(host_address=host_address, port_number=port_number, timeout_in_seconds=timeout_in_seconds)
+        # TODO: It would be nice if in was possible to adjust the read size during runtime!
+        super().__init__(
+            reader=partial(tcp_ip_transport.reader.read, tcp_ip_transport.read_size),
+            writer=tcp_ip_transport.write
+        )
+        self._host_address: Final[Union[IPv4Address, IPv6Address, str]] = tcp_ip_transport.address
+
         # TODO: Not sure which UUID function to use.
         self._client_guid: UUID = uuid1()
         # TODO: How to get this?
@@ -166,8 +161,6 @@ class SMBv2Connection(SMBConnection):
 
         self._outstanding_request_message_id_to_response_message_future: Dict[int, Future] = {}
         self._message_id_and_async_id_to_response_message_future: Dict[Tuple[int, int], Future] = {}
-
-        create_task(self._receive_message())
 
     @property
     def client_guid(self) -> UUID:

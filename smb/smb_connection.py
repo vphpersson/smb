@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from typing import Optional, Callable, Awaitable
+from typing import Optional, Callable, Awaitable, NoReturn
 from abc import ABC, abstractmethod
-from asyncio import Queue as AsyncioQueue, Event as AsyncioEvent, CancelledError, create_task as asyncio_create_task, Task
+from asyncio import Queue as AsyncioQueue, create_task as asyncio_create_task, Task
 
 from smb.smb_message import SMBMessage
 from smb.transport import Transport, NotEnoughDataError
@@ -42,7 +42,7 @@ class SMBConnection(ABC):
     async def _receive_message(self):
         pass
 
-    async def _handle_incoming_bytes(self):
+    async def _handle_incoming_bytes(self) -> NoReturn:
 
         # TODO: Maybe there is a better way to use a buffer.
         buffer = b''
@@ -60,7 +60,7 @@ class SMBConnection(ABC):
             await self._incoming_smb_messages_queue.put(transport.smb_message)
             buffer = buffer[len(transport):]
 
-    async def _handle_outgoing_bytes(self):
+    async def _handle_outgoing_bytes(self) -> NoReturn:
         while True:
             smb_message: SMBMessage = await self._outgoing_smb_messages_queue.get()
             await self._write(

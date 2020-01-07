@@ -547,6 +547,9 @@ class SMBv2Connection(SMBConnection):
         server_address: Optional[Union[str, IPv4Address, IPv6Address]] = None
     ) -> Tuple[int, ShareType]:
 
+        # TODO: "If ServerName is an empty string, the server MUST set it as "*" to indicate that the local server name
+        #  used." -- Does this mean that I don't need a server address!?
+
         tree_connect_response: SMBv2Message = await (
             await self._send_message(
                 request_message=TreeConnectRequest210(
@@ -1086,8 +1089,7 @@ class SMBv2Connection(SMBConnection):
                 requested_oplock_level=OplockLevel.SMB2_OPLOCK_LEVEL_NONE,
                 desired_access=FilePipePrinterAccessMask(file_read_data=True, file_write_data=True),
                 file_attributes=FileAttributes(normal=True),
-                # TODO: Why does Impacket only have the `read` attribute set to `True` (not `write`)?
-                share_access=ShareAccess(read=True, write=True),
+                share_access=ShareAccess(),
                 create_disposition=CreateDisposition.FILE_OPEN,
                 create_options=CreateOptions(non_directory_file=True)
             )

@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from enum import IntEnum, IntFlag
 from dataclasses import dataclass
 from struct import unpack as struct_unpack, pack as struct_pack
-from typing import Dict, Union, Optional, ClassVar, Tuple, Type
+from typing import Dict, Union, Optional, ClassVar, Tuple, Type, Awaitable
 
 from smb.protocol_identifier import ProtocolIdentifier
 from smb.smb_header import SMBHeader
@@ -119,6 +119,13 @@ class SMBv2ResponseHeader(SMBv2Header, ABC):
 @dataclass
 class SMBv2AsyncHeader(SMBv2ResponseHeader, SMBv2Header, ABC):
     async_id: int = 0
+
+    def __post_init__(self):
+        self.async_response_message_future: Optional[Awaitable[SMBv2Message]] = None
+
+    @property
+    def async_key(self) -> Tuple[int, int]:
+        return self.message_id, self.async_id
 
     @classmethod
     def _from_bytes(cls, data: bytes, dialect: Dialect = Dialect.SMB_2_1):

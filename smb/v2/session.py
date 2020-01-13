@@ -47,6 +47,8 @@ class SMBv2Session(ABC):
         # TODO: Do some kind of exception re-raise?
         return self.connection.negotiated_details.require_signing
 
+    # TODO: Add a method called close, that disconnects the session?
+
 
 @dataclass
 class SMB2XSession(SMBv2Session, ABC):

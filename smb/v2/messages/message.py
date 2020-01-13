@@ -60,9 +60,11 @@ class SMBv2Message(SMBMessage, ABC):
                 return cls._from_bytes_and_header(data=data, header=header)
             else:
                 return cls._command_and_type_to_class[lookup_key_tuple]._from_bytes_and_header(data=data, header=header)
-        except MalformedSMBv2MessageError:
-            # TODO: Reraise error if unable to create an `ErrorResponse`
-            return ErrorResponse._from_bytes_and_header(data=data, header=header)
+        except MalformedSMBv2MessageError as e:
+            try:
+                return ErrorResponse._from_bytes_and_header(data=data, header=header)
+            except MalformedSMBv2MessageError:
+                raise e
 
 
 @dataclass

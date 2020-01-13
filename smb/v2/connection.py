@@ -41,6 +41,7 @@ from smb.v2.messages.logoff import LogoffRequest, LogoffResponse
 # TODO: Reconsider whether this is necessary.
 from smb.v2.messages.negotiate.negotiate_response import SMB202NegotiateResponse, \
     SMB210NegotiateResponse, SMB300NegotiateResponse, SMB302NegotiateResponse, SMB311NegotiateResponse
+from smb.v2.messages.error import ErrorResponse
 from smb.v2.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
     CompressionCapabilitiesContext, NetnameNegotiateContextIdContext
 from smb.v2.header import SMBv2Header, SMBv2Command, SMBv2AsyncHeader, SMB210SyncRequestHeader
@@ -160,7 +161,8 @@ class SMBv2Connection(SMBConnection):
         # Custom
 
         self._outstanding_request_message_id_to_response_message_future: Dict[int, Future] = {}
-        self._message_id_and_async_id_to_response_message_future: Dict[Tuple[int, int], Future] = {}
+        # TODO: Make a new type, `AsyncKey`, for the `Tuple[int, int]`.
+        self.async_key_to_response_message_future: Dict[Tuple[int, int], Future] = {}
 
     @property
     def client_guid(self) -> UUID:
@@ -223,21 +225,17 @@ class SMBv2Connection(SMBConnection):
             self._sequence_window_upper += incoming_message.header.num_credits
 
             if isinstance(incoming_message.header, SMBv2AsyncHeader):
-                async_key: Tuple[int, int] = (incoming_message.header.message_id, incoming_message.header.async_id)
+                async_key = incoming_message.header.async_key
 
                 # A `STATUS_PENDING` response contains the async id for the message that will eventually contain
                 # the requested data.
-                if incoming_message.header.status.real_status is not Status.STATUS_PENDING:
-                    # TODO: It would be nice if the data that resolve is message-specific.
-                    self._message_id_and_async_id_to_response_message_future[async_key].set_result(incoming_message)
-                    continue
-                else:
+                if incoming_message.header.status.real_status is Status.STATUS_PENDING:
                     async_response_message_future = Future()
-                    self._message_id_and_async_id_to_response_message_future[async_key] = async_response_message_future
-                    # TODO: This is not a good solution either, is it?
-                    async_response_message_future.add_done_callback(
-                        lambda _: self._message_id_and_async_id_to_response_message_future.pop(async_key)
-                    )
+                    self.async_key_to_response_message_future[async_key] = async_response_message_future
+                    incoming_message.header.async_response_message_future = async_response_message_future
+                else:
+                    self.async_key_to_response_message_future.pop(async_key).set_result(incoming_message)
+                    continue
 
             self._outstanding_request_message_id_to_smb_message_request.pop(incoming_message.header.message_id)
             # TODO: Pop the cancel id map.
@@ -631,7 +629,7 @@ class SMBv2Connection(SMBConnection):
 
         await self.tree_disconnect(session=session, tree_id=tree_id)
 
-    async def _create(
+    async def  _create(
         self,
         path: Union[str, PureWindowsPath],
         session: SMBv2Session,
@@ -794,7 +792,6 @@ class SMBv2Connection(SMBConnection):
     ):
         """
 
-
         :param path:
         :param session:
         :param tree_id:
@@ -855,7 +852,7 @@ class SMBv2Connection(SMBConnection):
             data_remains = True
             offset = 0
             while data_remains:
-                read_response: SMBv2Message = await (
+                message_response: SMBv2Message = await (
                     await self._send_message(
                         request_message=ReadRequest210(
                             header=SMB210SyncRequestHeader(
@@ -877,14 +874,27 @@ class SMBv2Connection(SMBConnection):
                     )
                 )
 
-                if not isinstance(read_response, ReadResponse):
+                if isinstance(message_response, ErrorResponse):
+                    if message_response.header.status.real_status is Status.STATUS_PENDING:
+                        if isinstance(message_response.header, SMBv2AsyncHeader):
+                            # NOTE: The `async_response_message_future` attribute could be `None`, resulting in a
+                            # `TypeError` being raised.
+                            message_response = await message_response.header.async_response_message_future
+                        else:
+                            # TODO: Use proper exception.
+                            raise ValueError
+                    else:
+                        # TODO: Use corresponding exception. `StatusException.from_status(...)`?
+                        raise ValueError
+
+                if not isinstance(message_response, ReadResponse):
                     # TODO: Use proper exception.
                     raise ValueError
 
-                yield read_response.buffer
+                yield message_response.buffer
 
-                data_remains = read_response.data_remaining_length != 0
-                offset += read_response.data_length
+                data_remains = message_response.data_remaining_length != 0
+                offset += message_response.data_length
 
         async def merge_read_chunks() -> bytes:
             return b''.join([chunk async for chunk in read_chunks()])
@@ -1028,7 +1038,6 @@ class SMBv2Connection(SMBConnection):
         :param watch_tree: Whether to monitor the subdirectories of the directory.
         :return: A `Future` object that resolves to a `ChangeNotifyResponse` containing a notification.
         """
-        # TODO: Update doc string once async responses are message-specific.
 
         if completion_filter_flag is None:
             completion_filter_flag = CompletionFilterFlag()
@@ -1037,7 +1046,7 @@ class SMBv2Connection(SMBConnection):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        change_notify_response = await (
+        message_response = await (
             await self._send_message(
                 ChangeNotifyRequest(
                     header=SMB210SyncRequestHeader(
@@ -1054,17 +1063,28 @@ class SMBv2Connection(SMBConnection):
             )
         )
 
-        if not isinstance(change_notify_response, ChangeNotifyResponse):
+        # TODO: This code is duplicated. Can it put in a function?
+        if isinstance(message_response, ErrorResponse):
+            if message_response.header.status.real_status is Status.STATUS_PENDING:
+                if isinstance(message_response.header, SMBv2AsyncHeader):
+                    # NOTE: The `async_response_message_future` attribute could be `None`, resulting in a
+                    # `TypeError` being raised.
+                    message_response = await message_response.header.async_response_message_future
+                else:
+                    # TODO: Use proper exception.
+                    raise ValueError
+            else:
+                # TODO: Use corresponding exception. `StatusException.from_status(...)`?
+                raise ValueError
+
+        if not isinstance(message_response, ChangeNotifyResponse):
             # TODO: Use proper exception.
             raise ValueError
 
-        if not isinstance(change_notify_response.header, SMBv2AsyncHeader):
-            # TODO: Use proper exception.
-            raise ValueError
 
         # TODO: It is here I should register a done callback popping the dict, yes?
-        return self._message_id_and_async_id_to_response_message_future[
-            (change_notify_response.header.message_id, change_notify_response.header.async_id)
+        return self.async_key_to_response_message_future[
+            (message_response.header.message_id, message_response.header.async_id)
         ]
 
     @asynccontextmanager

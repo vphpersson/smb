@@ -1,0 +1,6 @@
+from enum import IntEnum
+
+
+class TreeConnectContextType(IntEnum):
+    SMB2_RESERVED_TREE_CONNECT_CONTEXT_ID = 0x0000
+    SMB2_REMOTED_IDENTITY_TREE_CONNECT_CONTEXT_ID = 0x000

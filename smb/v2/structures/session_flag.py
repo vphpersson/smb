@@ -1,0 +1,8 @@
+from enum import IntEnum
+
+
+class SessionFlag(IntEnum):
+    _SMB_SESSION_FLAG_NONE = 0x0000
+    SMB2_SESSION_FLAG_IS_GUEST = 0x0001
+    SMB2_SESSION_FLAG_IS_NULL = 0x0002
+    SMB2_SESSION_FLAG_ENCRYPT_DATA = 0x0004

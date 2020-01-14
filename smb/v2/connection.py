@@ -17,13 +17,14 @@ from spnego.negotiation_tokens.neg_token_resp import NegTokenResp
 from spnego.token_attributes import NegTokenRespNegState
 from asn1.oid import OID
 from msdsalgs.fscc.file_information_classes import FileDirectoryInformation, FileIdFullDirectoryInformation
+from msdsalgs.ntstatus_value import NTStatusValue
 
-from smb.smb_connection import SMBConnection, NegotiatedDetails
+from smb.connection import SMBConnection, NegotiatedDetails
 from smb.transport import Transport, TCPIPTransport
-from smb.v2.dialect import Dialect
+from smb.v2.structures.dialect import Dialect
 from smb.v2.client import PREFERRED_DIALECT, CLIENT_GUID, SECURITY_MODE, REQUIRE_MESSAGE_SIGNING
-from smb.v2.negotiate_context import HashAlgorithm, Cipher, CompressionAlgorithm
-from smb.v2.messages.message import SMBv2Message, calculate_credit_charge
+from smb.v2.structures.negotiate_context import HashAlgorithm, Cipher, CompressionAlgorithm
+from smb.v2.messages.message_base import SMBv2Message, calculate_credit_charge
 from smb.v2.messages.negotiate import NegotiateRequest, NegotiateResponse
 from smb.v2.messages.session_setup import SessionSetupRequest, SessionSetupResponse
 from smb.v2.messages.tree_connect import TreeConnectRequest210, TreeConnectResponse, ShareType
@@ -42,15 +43,14 @@ from smb.v2.messages.logoff import LogoffRequest, LogoffResponse
 from smb.v2.messages.negotiate.negotiate_response import SMB202NegotiateResponse, \
     SMB210NegotiateResponse, SMB300NegotiateResponse, SMB302NegotiateResponse, SMB311NegotiateResponse
 from smb.v2.messages.error import ErrorResponse
-from smb.v2.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
+from smb.v2.structures.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
     CompressionCapabilitiesContext, NetnameNegotiateContextIdContext
 from smb.v2.header import SMBv2Header, SMBv2Command, SMBv2AsyncHeader, SMB210SyncRequestHeader
-from smb.status import Status
-from smb.v2.security_mode import SecurityMode
-from smb.v2.tree_connect_object import TreeConnectObject
+from smb.v2.structures.security_mode import SecurityMode
+from smb.v2.structures.tree_connect_object import TreeConnectObject
 from smb.v2.messages.create.create_context import CreateContextList
-from smb.v2.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
-from smb.v2.file_id import FileId
+from smb.v2.structures.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
+from smb.v2.structures.file_id import FileId
 from smb.v2.session import SMB210Session
 
 
@@ -229,7 +229,7 @@ class SMBv2Connection(SMBConnection):
 
                 # A `STATUS_PENDING` response contains the async id for the message that will eventually contain
                 # the requested data.
-                if incoming_message.header.status.real_status is Status.STATUS_PENDING:
+                if incoming_message.header.status.real_status is NTStatusValue.STATUS_PENDING:
                     async_response_message_future = Future()
                     self.async_key_to_response_message_future[async_key] = async_response_message_future
                     incoming_message.header.async_response_message_future = async_response_message_future
@@ -423,7 +423,7 @@ class SMBv2Connection(SMBConnection):
         # TODO: "The client MUST attempt to locate a session in Connection.SessionTable by using the SessionId in the
         #  SMB2 header"
 
-        if session_setup_response_1.header.status.real_status is not Status.STATUS_MORE_PROCESSING_REQUIRED:
+        if session_setup_response_1.header.status.real_status is not NTStatusValue.STATUS_MORE_PROCESSING_REQUIRED:
             raise NotImplementedError
 
         neg_token_resp_1 = NegTokenResp.from_bytes(session_setup_response_1.security_buffer)
@@ -471,7 +471,7 @@ class SMBv2Connection(SMBConnection):
             # TODO: Use proper exception.
             raise ValueError
 
-        if session_setup_response_2.header.status.real_status is not Status.STATUS_SUCCESS:
+        if session_setup_response_2.header.status.real_status is not NTStatusValue.STATUS_SUCCESS:
             # TODO: Use proper exception.
             raise ValueError
 
@@ -864,7 +864,7 @@ class SMBv2Connection(SMBConnection):
                                     expected_maximum_response_size=file_size
                                 )
                             ),
-                            padding=SMBv2Header.structure_size + (ReadResponse.structure_size-1),
+                            padding=SMBv2Header.STRUCTURE_SIZE + (ReadResponse.STRUCTURE_SIZE-1),
                             length=file_size,
                             offset=offset,
                             file_id=file_id,
@@ -875,7 +875,7 @@ class SMBv2Connection(SMBConnection):
                 )
 
                 if isinstance(message_response, ErrorResponse):
-                    if message_response.header.status.real_status is Status.STATUS_PENDING:
+                    if message_response.header.status.real_status is NTStatusValue.STATUS_PENDING:
                         if isinstance(message_response.header, SMBv2AsyncHeader):
                             # NOTE: The `async_response_message_future` attribute could be `None`, resulting in a
                             # `TypeError` being raised.
@@ -938,7 +938,7 @@ class SMBv2Connection(SMBConnection):
                         tree_id=tree_id,
                         credit_charge=calculate_credit_charge(
                             variable_payload_size=0,
-                            expected_maximum_response_size=SMBv2Header.structure_size + WriteResponse.structure_size
+                            expected_maximum_response_size=SMBv2Header.STRUCTURE_SIZE + WriteResponse.STRUCTURE_SIZE
                         )
                     ),
                     write_data=write_data,
@@ -1065,7 +1065,7 @@ class SMBv2Connection(SMBConnection):
 
         # TODO: This code is duplicated. Can it put in a function?
         if isinstance(message_response, ErrorResponse):
-            if message_response.header.status.real_status is Status.STATUS_PENDING:
+            if message_response.header.status.real_status is NTStatusValue.STATUS_PENDING:
                 if isinstance(message_response.header, SMBv2AsyncHeader):
                     # NOTE: The `async_response_message_future` attribute could be `None`, resulting in a
                     # `TypeError` being raised.
@@ -1080,7 +1080,6 @@ class SMBv2Connection(SMBConnection):
         if not isinstance(message_response, ChangeNotifyResponse):
             # TODO: Use proper exception.
             raise ValueError
-
 
         # TODO: It is here I should register a done callback popping the dict, yes?
         return self.async_key_to_response_message_future[

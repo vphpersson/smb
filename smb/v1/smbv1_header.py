@@ -6,7 +6,7 @@ from enum import IntEnum, IntFlag
 from msdsalgs.utils import make_mask_class
 
 from smb.protocol_identifier import ProtocolIdentifier
-from smb.smb_header import SMBHeader
+from smb.header import SMBHeader
 
 
 class SMBv1Command(IntEnum):

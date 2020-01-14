@@ -1,7 +1,7 @@
-from smb.v2.dialect import Dialect
+from smb.v2.structures.dialect import Dialect
 from uuid import uuid1
 
-from smb.v2.security_mode import SecurityMode
+from smb.v2.structures.security_mode import SecurityMode
 
 REQUIRE_MESSAGE_SIGNING = False
 IS_ENCRYPTION_SUPPORTED = False

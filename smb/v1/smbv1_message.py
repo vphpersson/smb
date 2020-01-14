@@ -2,14 +2,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from struct import pack as struct_pack
 
-from smb.message import SMBMessage
+from smb.message import Message
 from smb.v1.smbv1_header import SMBv1Header, SMBv1Command
 from smb.v1.smb_parameter_block import SMBParameterBlock
 from smb.v1.smb_data_block import SMBDataBlock
 
 
 @dataclass
-class SMBv1Message(SMBMessage):
+class SMBv1Message(Message):
     header: SMBv1Header
     parameter_block: SMBParameterBlock
     data_block: SMBDataBlock
@@ -39,7 +39,7 @@ class SMBv1Message(SMBMessage):
 
     @classmethod
     def from_bytes(cls, data: bytes) -> SMBv1Message:
-        smb_message: SMBMessage = super().from_bytes(data=data)
+        smb_message: Message = super().from_bytes(data=data)
         if not isinstance(smb_message, SMBv1Message):
             # TODO: Use proper exception.
             raise ValueError

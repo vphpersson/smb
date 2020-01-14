@@ -3,12 +3,12 @@ from dataclasses import dataclass
 from typing import ClassVar
 from struct import pack as struct_pack
 
-from smb.v2.messages.message_base import SMBv2ResponseMessage
-from smb.v2.header import SMBv2Header, SMB311SyncResponseHeader
+from smb.v2.messages import ResponseMessage
+from smb.v2.header import Header, SMB311SyncResponseHeader
 
 
 @dataclass
-class ErrorResponse(SMBv2ResponseMessage):
+class ErrorResponse(ResponseMessage):
     STRUCTURE_SIZE: ClassVar[int] = 9
     _RESERVED: ClassVar[bytes] = bytes(1)
 
@@ -18,7 +18,7 @@ class ErrorResponse(SMBv2ResponseMessage):
     _error_data: ClassVar[bytes] = b''
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> ErrorResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ErrorResponse:
         if isinstance(header, SMB311SyncResponseHeader):
             raise NotImplementedError
 

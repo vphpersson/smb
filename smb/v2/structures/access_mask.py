@@ -1,6 +1,5 @@
 from enum import IntFlag
-
-from msdsalgs.utils import make_mask_class
+from msdsalgs.utils import Mask
 
 
 class FilePipePrinterAccessMaskFlag(IntFlag):
@@ -26,7 +25,7 @@ class FilePipePrinterAccessMaskFlag(IntFlag):
     GENERIC_READ = 0x80000000
 
 
-FilePipePrinterAccessMask = make_mask_class(FilePipePrinterAccessMaskFlag)
+FilePipePrinterAccessMask = Mask.make_class(FilePipePrinterAccessMaskFlag)
 
 
 class DirectoryAccessMaskFlag(IntFlag):
@@ -52,4 +51,4 @@ class DirectoryAccessMaskFlag(IntFlag):
     GENERIC_READ = 0x80000000
 
 
-DirectoryAccessMask = make_mask_class(DirectoryAccessMaskFlag)
+DirectoryAccessMask = Mask.make_class(DirectoryAccessMaskFlag)

@@ -5,7 +5,7 @@ from typing import Union, Optional, Final
 from ipaddress import IPv4Address, IPv6Address
 from asyncio import StreamWriter, StreamReader, open_connection as asyncio_open_connection, wait_for as asyncio_wait_for
 
-from smb.message import SMBMessage
+from smb.message import Message
 
 
 class NotEnoughDataError(Exception):
@@ -15,7 +15,7 @@ class NotEnoughDataError(Exception):
 @dataclass
 class Transport:
     stream_protocol_length: int
-    smb_message: SMBMessage
+    smb_message: Message
 
     @classmethod
     def from_bytes(cls, data: bytes, **smb_message_options) -> Transport:
@@ -34,7 +34,7 @@ class Transport:
 
         return cls(
             stream_protocol_length=stream_protocol_length,
-            smb_message=SMBMessage.from_bytes(data=message_data, **smb_message_options)
+            smb_message=Message.from_bytes(data=message_data, **smb_message_options)
         )
 
     def __len__(self) -> int:

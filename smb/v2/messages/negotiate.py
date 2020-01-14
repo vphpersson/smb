@@ -8,8 +8,8 @@ from datetime import datetime
 
 from msdsalgs.time import filetime_to_datetime
 
-from smb.v2.header import SMBv2Header, SMBv2Command
-from smb.v2.messages.message_base import SMBv2ResponseMessage, register_smbv2_message
+from smb.v2.header import Header, SMBv2Command
+from smb.v2.messages import ResponseMessage, register_smbv2_message
 from smb.v2.structures.dialect import Dialect
 from smb.v2.structures.security_mode import SecurityMode
 from smb.v2.structures.capabilities import CapabilitiesFlag
@@ -22,7 +22,7 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateReques
 # TODO: Is this missing `STRUCTURE_SIZE`?
 @dataclass
 @register_smbv2_message
-class NegotiateRequest(SMBv2ResponseMessage, ABC):
+class NegotiateRequest(ResponseMessage, ABC):
 
     dialects: Tuple[Dialect, ...]
     security_mode: SecurityMode
@@ -34,12 +34,12 @@ class NegotiateRequest(SMBv2ResponseMessage, ABC):
         return len(self.dialects)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> NegotiateRequest:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> NegotiateRequest:
 
         body_data: bytes = data[len(header):]
 
         try:
-            cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_data[:2])[0])
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedNegotiateRequestError(str(e)) from e
 
@@ -59,7 +59,7 @@ class NegotiateRequest(SMBv2ResponseMessage, ABC):
         )
 
         if any(dialect in dialects for dialect in [Dialect.SMB_3_1_1, Dialect.SMB_3_0_2, Dialect.SMB_3_0]):
-            capabilities = CapabilitiesFlag.from_mask(
+            capabilities = CapabilitiesFlag.from_int(
                 struct_unpack(f'<{dialect_count * "H"}', body_data[36:36 + dialect_count * 2])
             )
 
@@ -189,7 +189,7 @@ class SMB311NegotiateRequest(SMB3XNegotiateRequest):
 
 @dataclass
 @register_smbv2_message
-class NegotiateResponse(SMBv2ResponseMessage, ABC):
+class NegotiateResponse(ResponseMessage, ABC):
     dialect_revision: Dialect
     security_mode: SecurityMode
     server_guid: UUID
@@ -213,12 +213,12 @@ class NegotiateResponse(SMBv2ResponseMessage, ABC):
         return filetime_to_datetime(filetime=self._server_start_time)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> NegotiateResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> NegotiateResponse:
 
         body_data: bytes = data[len(header):]
 
         try:
-            cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_data[:2])[0])
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedNegotiateResponseError(str(e)) from e
 
@@ -231,7 +231,7 @@ class NegotiateResponse(SMBv2ResponseMessage, ABC):
             dialect_revision=dialect_revision,
             security_mode=SecurityMode(struct_unpack('<H', body_data[2:4])[0]),
             server_guid=UUID(bytes=body_data[8:24]),
-            capabilities=CapabilitiesFlag.from_mask(struct_unpack('<I', body_data[24:28])[0]),
+            capabilities=CapabilitiesFlag.from_int(struct_unpack('<I', body_data[24:28])[0]),
             max_transact_size=struct_unpack('<I', body_data[28:32])[0],
             max_read_size=struct_unpack('<I', body_data[32:36])[0],
             max_write_size=struct_unpack('<I', body_data[36:40])[0],

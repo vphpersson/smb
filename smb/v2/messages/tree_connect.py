@@ -4,8 +4,8 @@ from typing import ClassVar, Type
 from abc import ABC
 from struct import pack as struct_pack, unpack as struct_unpack
 
-from smb.v2.header import SMBv2Header, SMBv2Command
-from smb.v2.messages.message_base import SMBv2RequestMessage, SMBv2ResponseMessage, register_smbv2_message
+from smb.v2.header import Header, SMBv2Command
+from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
 from smb.v2.structures.dialect import Dialect
 from smb.v2.structures.tree_connect_flag import TreeConnectFlag
 from smb.v2.structures.access_mask import FilePipePrinterAccessMask
@@ -16,19 +16,19 @@ from smb.v2.structures.share_capabilities import ShareCapabilities
 
 @dataclass
 @register_smbv2_message
-class TreeConnectRequest(SMBv2RequestMessage, ABC):
+class TreeConnectRequest(RequestMessage, ABC):
     STRUCTURE_SIZE: ClassVar[int] = 9
 
     _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
-    _dialect_to_class: ClassVar[Dialect, Type[TreeConnectRequest]] = {}
-    _dialect: ClassVar[Dialect] = NotImplemented
+    _DIALECT_TO_CLASS: ClassVar[Dialect, Type[TreeConnectRequest]] = {}
+    _DIALECT: ClassVar[Dialect] = NotImplemented
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> TreeConnectRequest:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> TreeConnectRequest:
 
         body_data: bytes = data[len(header):]
 
-        cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_data[:2])[0])
+        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
 
         path_offset: int = struct_unpack('<H', body_data[4:6])[0]
         path_length: int = struct_unpack('<H', body_data[6:8])[0]
@@ -38,9 +38,9 @@ class TreeConnectRequest(SMBv2RequestMessage, ABC):
             path=data[path_offset:path_offset + path_length].decode(encoding='utf-16-le')
         )
 
-        if Dialect.SMB_2_0_2 <= header.header_dialect < Dialect.SMB_3_1_1:
-            return cls._dialect_to_class[header.header_dialect](**tree_connect_base_kwargs)
-        elif header.header_dialect is Dialect.SMB_3_1_1:
+        if Dialect.SMB_2_0_2 <= header.DIALECT < Dialect.SMB_3_1_1:
+            return cls._DIALECT_TO_CLASS[header.DIALECT](**tree_connect_base_kwargs)
+        elif header.DIALECT is Dialect.SMB_3_1_1:
             raise NotImplemented
             # return TreeConnect311(
             #     **tree_connect_base_kwargs,
@@ -106,7 +106,7 @@ class TreeConnectRequest311(TreeConnectRequest):
     flags: TreeConnectFlag
 
 
-TreeConnectRequest._dialect_to_class = {
+TreeConnectRequest._DIALECT_TO_CLASS = {
     Dialect.SMB_2_0_2: TreeConnectRequest202,
     Dialect.SMB_2_1: TreeConnectRequest210,
     Dialect.SMB_3_0: TreeConnectRequest300,
@@ -117,41 +117,40 @@ TreeConnectRequest._dialect_to_class = {
 
 @dataclass
 @register_smbv2_message
-class TreeConnectResponse(SMBv2ResponseMessage):
+class TreeConnectResponse(ResponseMessage):
+    STRUCTURE_SIZE: ClassVar[int] = 16
+    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
+    _RESERVED: ClassVar[bytes] = bytes(1)
+
     share_type: ShareType
     share_flag: ShareFlag
     share_capabilities: ShareCapabilities
     maximal_access: FilePipePrinterAccessMask
 
-    STRUCTURE_SIZE: ClassVar[int] = 16
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
-
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> SMBv2Message:
 
         body_data: bytes = data[len(header):]
 
-        cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_data[:2])[0])
+        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
 
-        # TODO: Use a `ClassVar`.
-        # Reserved
-        if body_data[3:4] != b'\x00':
+        if body_data[3:4] != cls._RESERVED:
             # TODO: Raise proper exception.
             raise ValueError
 
         return cls(
             header=header,
             share_type=ShareType(body_data[2]),
-            share_flag=ShareFlag.from_mask(struct_unpack('<I', body_data[4:8])[0]),
-            share_capabilities=ShareCapabilities.from_mask(struct_unpack('<I', body_data[8:12])[0]),
-            maximal_access=FilePipePrinterAccessMask.from_mask(struct_unpack('<I', body_data[12:16])[0])
+            share_flag=ShareFlag.from_int(struct_unpack('<I', body_data[4:8])[0]),
+            share_capabilities=ShareCapabilities.from_int(struct_unpack('<I', body_data[8:12])[0]),
+            maximal_access=FilePipePrinterAccessMask.from_int(struct_unpack('<I', body_data[12:16])[0])
         )
 
     def __bytes__(self) -> bytes:
         return bytes(self.header) + b''.join([
             struct_pack('<H', self.STRUCTURE_SIZE),
             struct_pack('<B', self.share_type),
-            b'\x00',
+            self._RESERVED,
             struct_pack('<I', self.share_flag),
             struct_pack('<I', self.share_capabilities),
             struct_pack('<I', self.maximal_access)

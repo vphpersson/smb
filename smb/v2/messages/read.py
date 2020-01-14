@@ -4,8 +4,8 @@ from typing import ClassVar, Dict, Any, Type
 from struct import pack as struct_pack, unpack as struct_unpack
 from abc import ABC
 
-from smb.v2.messages.message_base import SMBv2RequestMessage, SMBv2ResponseMessage, register_smbv2_message
-from smb.v2.header import SMBv2Header, SMBv2Command
+from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
+from smb.v2.header import Header, SMBv2Command
 from smb.exceptions import IncorrectStructureSizeError, MalformedReadRequestError, InvalidReadRequestFlagError,\
     InvalidReadRequestChannelError, InvalidReadRequestReadChannelInfoOffsetError,\
     InvalidReadRequestReadChannelLengthError, MalformedReadResponseError, \
@@ -18,7 +18,7 @@ from smb.v2.structures.read_request_flag import ReadRequestFlag
 
 @dataclass
 @register_smbv2_message
-class ReadRequest(SMBv2RequestMessage, ABC):
+class ReadRequest(RequestMessage, ABC):
     STRUCTURE_SIZE: ClassVar[int] = 49
     _reserved_flags_value: ClassVar[bytes] = b'\x00'
     _reserved_channel_value: ClassVar[bytes] = 4 * b'\x00'
@@ -37,11 +37,11 @@ class ReadRequest(SMBv2RequestMessage, ABC):
     remaining_bytes: int
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> ReadRequest:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ReadRequest:
         body_bytes: bytes = data[len(header):]
 
         try:
-            cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_bytes[:2])[0])
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedReadRequestError(str(e)) from e
 
@@ -59,7 +59,7 @@ class ReadRequest(SMBv2RequestMessage, ABC):
         read_channel_info_offset_raw: bytes = body_bytes[44:46]
         read_channel_info_length_raw: bytes = body_bytes[46:48]
 
-        if header.header_dialect in {Dialect.SMB_2_0_2, Dialect.SMB_2_1}:
+        if header.DIALECT in {Dialect.SMB_2_0_2, Dialect.SMB_2_1}:
             if flags_raw != cls._reserved_flags_value:
                 raise InvalidReadRequestFlagError
 
@@ -72,14 +72,14 @@ class ReadRequest(SMBv2RequestMessage, ABC):
             if read_channel_info_length_raw != cls._reserved_read_channel_length:
                 raise InvalidReadRequestReadChannelLengthError
 
-            return cls._dialect_to_class[header.header_dialect](header=header, **read_request_base_args)
+            return cls._dialect_to_class[header.DIALECT](header=header, **read_request_base_args)
 
         read_channel_info_offset: int = struct_unpack('<H', read_channel_info_offset_raw)[0]
         read_channel_info_length: int = struct_unpack('<H', read_channel_info_length_raw)[0]
         read_channel_buffer: bytes = data[read_channel_info_offset:read_channel_info_offset + read_channel_info_length]
         channel = ReadRequestChannel(struct_unpack('<I', channel_raw)[0])
 
-        if header.header_dialect is Dialect.SMB_3_0:
+        if header.DIALECT is Dialect.SMB_3_0:
             if flags_raw != cls._reserved_flags_value:
                 raise InvalidReadRequestFlagError
             return ReadRequest300(
@@ -90,12 +90,12 @@ class ReadRequest(SMBv2RequestMessage, ABC):
             )
 
         try:
-            flags = ReadRequestFlag.from_mask(struct_unpack('<B', body_bytes[3:4])[0])
+            flags = ReadRequestFlag.from_int(struct_unpack('<B', body_bytes[3:4])[0])
         except ValueError as e:
             raise InvalidReadRequestFlagError from e
 
-        if header.header_dialect in {Dialect.SMB_3_0_2, Dialect.SMB_3_1_1}:
-            return cls._dialect_to_class[header.header_dialect](
+        if header.DIALECT in {Dialect.SMB_3_0_2, Dialect.SMB_3_1_1}:
+            return cls._dialect_to_class[header.DIALECT](
                 header=header,
                 **read_request_base_args,
                 read_channel_buffer=read_channel_buffer,
@@ -187,7 +187,7 @@ class ReadRequest302(ReadRequest3X):
 
     def __bytes__(self) -> bytes:
         return super()._to_bytes(
-            flags_bytes_value=struct_pack('<B', self.flags.to_mask()),
+            flags_bytes_value=struct_pack('<B', int(self.flags)),
             channel_bytes_value=struct_pack('<I', self.channel.value),
             read_channel_offset_bytes_value=struct_pack('<H', self.STRUCTURE_SIZE - 1),
             read_channel_length_bytes_value=struct_pack('<H', len(self.read_channel_buffer)),
@@ -202,7 +202,7 @@ class ReadRequest311(ReadRequest3X):
 
     def __bytes__(self) -> bytes:
         return super()._to_bytes(
-            flags_bytes_value=struct_pack('<B', self.flags.to_mask()),
+            flags_bytes_value=struct_pack('<B', int(self.flags)),
             channel_bytes_value=struct_pack('<I', self.channel.value),
             read_channel_offset_bytes_value=struct_pack('<H', self.STRUCTURE_SIZE - 1),
             read_channel_length_bytes_value=struct_pack('<H', len(self.read_channel_buffer)),
@@ -221,7 +221,7 @@ ReadRequest._dialect_to_class = {
 
 @dataclass
 @register_smbv2_message
-class ReadResponse(SMBv2ResponseMessage):
+class ReadResponse(ResponseMessage):
     buffer: bytes
     data_remaining_length: int
 
@@ -235,12 +235,12 @@ class ReadResponse(SMBv2ResponseMessage):
         return len(self.buffer)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> ReadResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ReadResponse:
 
         body_data = data[len(header):]
 
         try:
-            cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_data[:2])[0])
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedReadResponseError(str(e)) from e
 

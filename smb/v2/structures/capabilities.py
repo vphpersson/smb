@@ -1,6 +1,5 @@
 from enum import IntFlag
-
-from msdsalgs.utils import make_mask_class
+from msdsalgs.utils import Mask
 
 
 class CapabilitiesFlagMask(IntFlag):
@@ -13,4 +12,4 @@ class CapabilitiesFlagMask(IntFlag):
     SMB2_GLOBAL_CAP_ENCRYPTION = 0x00000040
 
 
-CapabilitiesFlag = make_mask_class(CapabilitiesFlagMask, prefix='SMB2_GLOBAL_CAP_')
+CapabilitiesFlag = Mask.make_class(CapabilitiesFlagMask, prefix='SMB2_GLOBAL_CAP_')

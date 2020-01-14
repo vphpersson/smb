@@ -8,25 +8,27 @@ Work in progress!
 
 ```python
 #!/usr/bin/env python3
-from asyncio import run as asyncio_run, gather as asyncio_gather
-from typing import List, Coroutine, Union, Tuple, Callable, Optional
-from pathlib import PureWindowsPath
 
-from smb.v2.connection import SMBv2Connection
-from smb.v2.session import SMBv2Session
-from smb.v2.messages.query_directory.query_directory_request import FileInformationClass, QueryDirectoryFlag
-from smb.v2.messages.query_directory.query_directory_response import FileDirectoryInformation, FileInformation
+from asyncio import run as asyncio_run, gather as asyncio_gather
+from typing import List, Union, Callable, Optional
+from pathlib import PureWindowsPath
+from sys import stderr
+
+from msdsalgs.fscc.file_information import FileInformation
+
+from smb.transport import TCPIPTransport
+from smb.v2.connection import Connection
+from smb.v2.session import Session
+from smb.v2.messages.query_directory import FileInformationClass, FileDirectoryInformation, QueryDirectoryFlag
 
 
 async def enumerate_share_files(
-    smb_connection: SMBv2Connection,
-    smb_session: SMBv2Session,
+    smb_connection: Connection,
+    smb_session: Session,
     tree_id: int,
     root_path: Union[str, PureWindowsPath] = '',
     num_max_concurrent: int = 10,
-    per_file_callback: Optional[
-        Callable[[PureWindowsPath, FileInformation, SMBv2Connection, SMBv2Session, int], bool]
-    ] = None
+    per_file_callback: Optional[Callable[[PureWindowsPath, FileInformation, Connection, Session, int], bool]] = None
 ) -> None:
     """
     Enumerate files in an SMB share.
@@ -44,16 +46,16 @@ async def enumerate_share_files(
     :return: None
     """
 
-    async def scan_directory(path: PureWindowsPath) -> Tuple[PureWindowsPath, List[FileDirectoryInformation]]:
+    async def scan_directory(path: PureWindowsPath) -> List[FileDirectoryInformation]:
         """
         Scan a directory in an SMB share and provide information about its contents.
 
         :param path: The path of the directory to be scanned.
-        :return: The path of the enumerated directory and a list of its file/directory information entries.
+        :return: A list of the path's file and directory information entries.
         """
 
         async with smb_connection.create_dir(path=path, session=smb_session, tree_id=tree_id) as create_response:
-            return PureWindowsPath(path), await smb_connection.query_directory(
+            return await smb_connection.query_directory(
                 file_id=create_response.file_id,
                 file_information_class=FileInformationClass.FileIdFullDirectoryInformation,
                 query_directory_flag=QueryDirectoryFlag(),
@@ -65,7 +67,7 @@ async def enumerate_share_files(
     def default_per_file_callback(entry_path: PureWindowsPath, *_) -> bool:
         """
         Print each encountered file's path and decide to enumerate an encountered directory.
-        
+
         :param entry_path: The path of an encountered file in an SMB share.
         :return: Whether to enumerate an encountered directory. Always `True`.
         """
@@ -74,26 +76,27 @@ async def enumerate_share_files(
 
     per_file_callback = per_file_callback or default_per_file_callback
 
-    scan_directory_coroutines: List[Coroutine[None, None, Tuple[PureWindowsPath, List[FileDirectoryInformation]]]] = [
-        scan_directory(path=root_path)
-    ]
+    paths_to_scan: List[Union[PureWindowsPath, str]] = [root_path]
 
-    while scan_directory_coroutines:
-        num_remaining_coroutines = len(scan_directory_coroutines)
-
-        result_pairs: List[Tuple[Union[str, PureWindowsPath], List[FileDirectoryInformation]]] = await asyncio_gather(
-            *[
-                scan_directory_coroutines.pop()
-                for _ in range(min(num_remaining_coroutines, num_max_concurrent))
-            ]
+    while paths_to_scan:
+        num_remaining_paths = len(paths_to_scan)
+        paths_to_scan_in_iteration = [paths_to_scan.pop() for _ in range(min(num_remaining_paths, num_max_concurrent))]
+        scan_results: List[Union[List[FileDirectoryInformation], Exception]] = await asyncio_gather(
+            *[scan_directory(path) for path in paths_to_scan_in_iteration],
+            return_exceptions=True
         )
 
-        for directory_path, file_directory_information_list in result_pairs:
+        for directory_path, scan_result in zip(paths_to_scan_in_iteration, scan_results):
+            if isinstance(scan_result, Exception):
+                # print(f'{directory_path}: {scan_result}', file=stderr)
+                continue
+
+            file_directory_information_list: List[FileDirectoryInformation] = scan_result
             for entry in file_directory_information_list:
                 if entry.file_name in {'.', '..'}:
                     continue
 
-                entry_path: PureWindowsPath = directory_path / entry.file_name
+                entry_path: PureWindowsPath = PureWindowsPath(directory_path) / entry.file_name
                 should_scan: bool = per_file_callback(
                     entry_path,
                     entry.file_information,
@@ -102,33 +105,38 @@ async def enumerate_share_files(
                     tree_id
                 )
 
-                if not entry.file_information.file_attributes.directory:
-                    continue
-
-                if should_scan:
-                    scan_directory_coroutines.append(scan_directory(path=entry_path))
+                if entry.file_information.file_attributes.directory and should_scan:
+                    paths_to_scan.append(entry_path)
 
 
 async def main():
-    async with SMBv2Connection(host_address='192.168.4.13') as smb_connection:
-        await smb_connection.negotiate()
-        async with smb_connection.setup_session(username='vph', authentication_secret='PASSWORD') as smb_session:
-            async with smb_connection.tree_connect(share_name='Users', session=smb_session) as (tree_id, share_type):
-                script_paths: List[PureWindowsPath] = []
 
-                def collect_script_paths(entry_path: PureWindowsPath, *_, **__) -> bool:
-                    if entry_path.suffix.lower() == '.bat':
-                        script_paths.append(entry_path)
-                    return True
+    address = '192.168.56.101'
+    port_number = 445
+    username = 'vph'
+    password = 'PASSWORD'
+    share_name = 'Users'
 
-                await enumerate_share_files(
-                    smb_connection=smb_connection,
-                    smb_session=smb_session,
-                    tree_id=tree_id,
-                    per_file_callback=collect_script_paths
-                )
+    async with TCPIPTransport(address=address, port_number=port_number) as tcp_ip_transport:
+        async with Connection(tcp_ip_transport=tcp_ip_transport) as smb_connection:
+            await smb_connection.negotiate()
+            async with smb_connection.setup_session(username=username, authentication_secret=password) as smb_session:
+                async with smb_connection.tree_connect(share_name=share_name, session=smb_session) as (tree_id, _):
+                    script_paths: List[str] = []
 
-                print('\n'.join(str(script_path) for script_path in script_paths))
+                    def collect_script_paths(entry_path: PureWindowsPath, *_, **__) -> bool:
+                        if entry_path.suffix.lower() == '.bat':
+                            script_paths.append(str(entry_path))
+                        return True
+
+                    await enumerate_share_files(
+                        smb_connection=smb_connection,
+                        smb_session=smb_session,
+                        tree_id=tree_id,
+                        per_file_callback=collect_script_paths
+                    )
+
+                    print('\n'.join(script_paths))
 
 
 if __name__ == '__main__':
@@ -137,6 +145,10 @@ if __name__ == '__main__':
 
 **Output:**
 ```
+vph\AppData\Local\Programs\Python\Python38-32\Lib\venv\scripts\nt\activate.bat
+vph\AppData\Local\Programs\Python\Python38-32\Lib\venv\scripts\nt\deactivate.bat
+vph\AppData\Local\Programs\Python\Python38-32\Lib\idlelib\idle.bat
+vph\AppData\Local\Programs\Python\Python38-32\Lib\ctypes\macholib\fetch_macholib.bat
 vph\Downloads\ghidra_9.0.4_PUBLIC_20190516\ghidra_9.0.4\ghidraRun.bat
 vph\Downloads\ghidra_9.0.4_PUBLIC_20190516\ghidra_9.0.4\support\analyzeHeadless.bat
 vph\Downloads\ghidra_9.0.4_PUBLIC_20190516\ghidra_9.0.4\support\buildGhidraJar.bat

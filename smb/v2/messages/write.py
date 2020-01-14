@@ -4,8 +4,8 @@ from typing import ClassVar, Optional, Dict, Type
 from struct import pack as struct_pack, unpack as struct_unpack
 from abc import ABC
 
-from smb.v2.messages.message_base import SMBv2RequestMessage, SMBv2ResponseMessage, register_smbv2_message
-from smb.v2.header import SMBv2Header, SMBv2Command, SMB2XSyncHeader, SMB3XSyncHeader, Dialect
+from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
+from smb.v2.header import Header, SMBv2Command, SMB2XSyncHeader, SMB3XSyncHeader, Dialect
 from smb.exceptions import IncorrectStructureSizeError
 from smb.v2.structures.file_id import FileId
 from smb.v2.structures.write_flag import WriteFlag
@@ -13,7 +13,7 @@ from smb.v2.structures.write_flag import WriteFlag
 
 @dataclass
 @register_smbv2_message
-class WriteRequest(SMBv2RequestMessage, ABC):
+class WriteRequest(RequestMessage, ABC):
     # TODO: Actual size is 48. Must the buffer contain at least one byte?
     STRUCTURE_SIZE: ClassVar[int] = 49
 
@@ -32,11 +32,11 @@ class WriteRequest(SMBv2RequestMessage, ABC):
     flags: WriteFlag
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> WriteRequest:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> WriteRequest:
         body_bytes: bytes = data[len(header):]
 
         try:
-            cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_bytes[:2])[0])
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
         except IncorrectStructureSizeError as e:
             ...
 
@@ -48,7 +48,7 @@ class WriteRequest(SMBv2RequestMessage, ABC):
         remaining_bytes: int = struct_unpack('<I', body_bytes[36:40])[0]
         write_channel_info_offset_raw: bytes = body_bytes[40:42]
         write_channel_info_length_raw: bytes = body_bytes[42:44]
-        flags = WriteFlag.from_mask(struct_unpack('<I', body_bytes[44:48])[0])
+        flags = WriteFlag.from_int(struct_unpack('<I', body_bytes[44:48])[0])
 
         write_data: bytes = data[data_offset:data_offset + length]
 
@@ -65,7 +65,7 @@ class WriteRequest(SMBv2RequestMessage, ABC):
                 # TODO: Use proper exception.
                 raise ValueError
 
-            return cls._dialect_to_class[header.header_dialect](
+            return cls._dialect_to_class[header.DIALECT](
                 write_data=write_data,
                 offset=offset,
                 file_id=file_id,
@@ -76,7 +76,7 @@ class WriteRequest(SMBv2RequestMessage, ABC):
             write_channel_info_offset: int = struct_unpack('<H', write_channel_info_offset_raw)[0]
             write_channel_info_length: int = struct_unpack('<H', write_channel_info_length_raw)[0]
 
-            return cls._dialect_to_class[header.header_dialect](
+            return cls._dialect_to_class[header.DIALECT](
                 write_data=write_data,
                 offset=offset,
                 file_id=file_id,
@@ -114,7 +114,7 @@ class WriteRequest(SMBv2RequestMessage, ABC):
             struct_pack('<I', self.remaining_bytes),
             struct_pack('<H', write_channel_info_offset),
             struct_pack('<H', write_channel_info_length),
-            struct_pack('<I', self.flags.to_mask()),
+            struct_pack('<I', int(self.flags)),
             write_channel_info_buffer if write_channel_info_buffer is not None else b'',
             # TODO: Must it be at least one byte?
             self.write_data
@@ -189,7 +189,7 @@ WriteRequest._dialect_to_class = {
 
 @dataclass
 @register_smbv2_message
-class WriteResponse(SMBv2ResponseMessage):
+class WriteResponse(ResponseMessage):
 
     STRUCTURE_SIZE: ClassVar[int] = 17
 
@@ -203,11 +203,11 @@ class WriteResponse(SMBv2ResponseMessage):
     count: int
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> WriteResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> WriteResponse:
         body_bytes: bytes = data[len(header):]
 
         try:
-            cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_bytes[:2])[0])
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
         except IncorrectStructureSizeError as e:
             ...
 

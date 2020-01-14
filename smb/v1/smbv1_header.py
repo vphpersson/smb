@@ -2,11 +2,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from struct import unpack as struct_unpack, pack as struct_pack
 from enum import IntEnum, IntFlag
+from typing import ClassVar
 
-from msdsalgs.utils import make_mask_class
+from msdsalgs.utils import Mask
 
-from smb.protocol_identifier import ProtocolIdentifier
-from smb.header import SMBHeader
+from smb.header import Header
 
 
 class SMBv1Command(IntEnum):
@@ -127,7 +127,7 @@ class SMBv1FlagMask(IntFlag):
     SMB_FLAGS_REPLY = 0x80
 
 
-SMBv1Flag = make_mask_class(SMBv1FlagMask, prefix='SMB_FLAGS_')
+SMBv1Flag = Mask.make_class(SMBv1FlagMask, prefix='SMB_FLAGS_')
 
 
 class SMBv1Flag2Mask(IntFlag):
@@ -148,12 +148,12 @@ class SMBv1Flag2Mask(IntFlag):
     SMB_FLAGS2_EXTENDED_SECURITY = 0x0800
 
 
-SMBv1Flag2 = make_mask_class(SMBv1Flag2Mask, prefix='SMB_FLAGS2_')
+SMBv1Flag2 = Mask.make_class(SMBv1Flag2Mask, prefix='SMB_FLAGS2_')
 
 
 @dataclass
-class SMBv1Header(SMBHeader):
-    protocol: ProtocolIdentifier
+class SMBv1Header(Header):
+    PROTOCOL_IDENTIFIER: ClassVar[bytes] = b'\xffSMB'
     command: SMBv1Command
     status: SMBStatus
     flags: SMBv1Flag
@@ -163,24 +163,13 @@ class SMBv1Header(SMBHeader):
     uid: int
     mid: int
 
-    @staticmethod
-    def protocol_identifier() -> ProtocolIdentifier:
-        return ProtocolIdentifier.SMB_VERSION_1
-
     @classmethod
     def from_bytes(cls, data: bytes) -> SMBv1Header:
-
-        protocol_id = ProtocolIdentifier(data[:4])
-        if protocol_id != ProtocolIdentifier.SMB_VERSION_1:
-            # TODO: Raise proper exception.
-            raise ValueError
-
         return cls(
-            protocol=protocol_id,
             command=SMBv1Command(data[4]),
             status=SMBStatus(struct_unpack('<I', data[5:9])[0]),
-            flags=SMBv1Flag.from_mask(mask=SMBv1FlagMask(data[9])),
-            flags2=SMBv1Flag2.from_mask(mask=SMBv1Flag2Mask(struct_unpack('<H', data[10:12])[0])),
+            flags=SMBv1Flag.from_int(SMBv1FlagMask(data[9])),
+            flags2=SMBv1Flag2.from_int(SMBv1Flag2Mask(struct_unpack('<H', data[10:12])[0])),
             pid=struct_unpack('<I', data[26:28] + data[12:14])[0],
             tid=struct_unpack('<H', data[24:26])[0],
             uid=struct_unpack('<H', data[28:30])[0],
@@ -192,11 +181,11 @@ class SMBv1Header(SMBHeader):
         pid_bytes = struct_pack('<I', self.pid)
 
         return b''.join([
-            self.protocol.value,
+            self.PROTOCOL_IDENTIFIER,
             bytes([self.command.value]),
             struct_pack('<I', self.status.value),
-            bytes([self.flags.to_mask()]),
-            struct_pack('<H', self.flags2.to_mask()),
+            bytes([int(self.flags)]),
+            struct_pack('<H', int(self.flags2)),
             # `PIDHigh` , i.e. the high-order bytes of the PID. Note that little-endian is in use.
             pid_bytes[2:4],
             # Security features. TODO

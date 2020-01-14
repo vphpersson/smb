@@ -7,7 +7,7 @@ from smb.v2.structures.dialect import Dialect
 
 
 @dataclass
-class SMBv2Session(ABC):
+class Session(ABC):
     session_id: int
     connection: SMBv2Connection
     # TODO: Must figure out how to retrieve this from the GSS token.
@@ -17,7 +17,7 @@ class SMBv2Session(ABC):
     # user_credentials: ...,
 
     dialect: ClassVar[Dialect] = NotImplemented
-    _dialect_to_class: ClassVar[Dict[Dialect, Type[SMBv2Session]]] = {}
+    _dialect_to_class: ClassVar[Dict[Dialect, Type[Session]]] = {}
 
     def __post_init__(self):
         # "A table of tree connects, as specified in section 3.2.1.4. The table MUST allow lookup by both
@@ -30,7 +30,7 @@ class SMBv2Session(ABC):
 
     @classmethod
     def from_dialect(cls, dialect: Dialect, session_id: int, connection: SMBv2Connection, **dialect_session_kwargs):
-        if cls != SMBv2Session:
+        if cls != Session:
             if cls.dialect != dialect:
                 # TODO: Use proper exception.
                 raise ValueError
@@ -51,7 +51,7 @@ class SMBv2Session(ABC):
 
 
 @dataclass
-class SMB2XSession(SMBv2Session, ABC):
+class SMB2XSession(Session, ABC):
     pass
 
 
@@ -66,7 +66,7 @@ class SMB210Session(SMB2XSession):
 
 
 @dataclass
-class SMB3XSession(SMBv2Session, ABC):
+class SMB3XSession(Session, ABC):
     channel_list: ...
     channel_sequence: bytes
     encrypt_data: bool
@@ -92,7 +92,7 @@ class SMB311Session(SMB3XSession):
     dialect: ClassVar[Dialect] = Dialect.SMB_3_1_1
 
 
-SMBv2Session._dialect_to_class = {
+Session._dialect_to_class = {
     Dialect.SMB_2_0_2: SMB202Session,
     Dialect.SMB_2_1: SMB210Session,
     Dialect.SMB_3_0: SMB300Session,

@@ -23,10 +23,10 @@ class MalformedSMBv2MessageError(MalformedSMBMessageError):
 
 
 class IncorrectStructureSizeError(MalformedSMBMessageError):
-    def __init__(self, observed_STRUCTURE_SIZE: Any, expected_STRUCTURE_SIZE: int):
-        super().__init__(f'Expected structure size {expected_STRUCTURE_SIZE}, observed {observed_STRUCTURE_SIZE}.')
-        self.observed_STRUCTURE_SIZE: Any = observed_STRUCTURE_SIZE
-        self.expected_STRUCTURE_SIZE: int = expected_STRUCTURE_SIZE
+    def __init__(self, observed_structure_size: Any, expected_structure_size: int):
+        super().__init__(f'Expected structure size {expected_structure_size}, observed {observed_structure_size}.')
+        self.observed_STRUCTURE_SIZE: Any = observed_structure_size
+        self.expected_STRUCTURE_SIZE: int = expected_structure_size
 
 
 class MalformedNegotiateRequestError(MalformedSMBv2MessageError):

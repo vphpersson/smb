@@ -9,8 +9,8 @@ from datetime import datetime
 from msdsalgs.fscc.file_attributes import FileAttributes
 from msdsalgs.time import filetime_to_datetime
 
-from smb.v2.messages.message_base import SMBv2RequestMessage, register_smbv2_message
-from smb.v2.header import SMBv2Header, SMBv2Command, SMB311SyncRequestHeader, SMB311AsyncHeader
+from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
+from smb.v2.header import Header, SMBv2Command, SMB311SyncRequestHeader, SMB311AsyncHeader
 from smb.exceptions import IncorrectStructureSizeError, MalformedCreateRequestError, \
     NonEmptySecurityFlagsError, NonEmptySmbCreateFlagsError, InvalidCreateDesiredAccessValueError, \
     InvalidCreateDispositionValueError, InvalidCreateFileAttributesValueError, \
@@ -33,7 +33,7 @@ from smb.v2.structures.file_id import FileId
 
 @dataclass
 @register_smbv2_message
-class CreateRequest(SMBv2RequestMessage):
+class CreateRequest(RequestMessage):
     STRUCTURE_SIZE: ClassVar[int] = 57
     _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CREATE
     _RESERVED: ClassVar[bytes] = 8 * b'\x00'
@@ -57,12 +57,12 @@ class CreateRequest(SMBv2RequestMessage):
         return PureWindowsPath(self.name)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> SMBv2Message:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> SMBv2Message:
 
         body_data: bytes = data[len(header):]
 
         try:
-            cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_data[:2])[0])
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedCreateRequestError(str(e)) from e
 
@@ -89,12 +89,12 @@ class CreateRequest(SMBv2RequestMessage):
             raise NonEmptyCreateReservedError(observed_reserved_value=reserved)
 
         try:
-            file_attributes = FileAttributes.from_mask(struct_unpack('<I', body_data[28:32])[0])
+            file_attributes = FileAttributes.from_int(struct_unpack('<I', body_data[28:32])[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateFileAttributesValueError from e
 
         try:
-            share_access = ShareAccess.from_mask(struct_unpack('<I', body_data[32:36])[0])
+            share_access = ShareAccess.from_int(struct_unpack('<I', body_data[32:36])[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateShareAccessValueError from e
 
@@ -104,14 +104,14 @@ class CreateRequest(SMBv2RequestMessage):
             raise InvalidCreateDispositionValueError from e
 
         try:
-            create_options = CreateOptions.from_mask(struct_unpack('<I', body_data[40:44])[0])
+            create_options = CreateOptions.from_int(struct_unpack('<I', body_data[40:44])[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateOptionsValueError from e
 
         try:
             desired_access: Union[DirectoryAccessMask, FilePipePrinterAccessMask] = (
                 DirectoryAccessMask if create_options.directory_file else FilePipePrinterAccessMask
-            ).from_mask(struct_unpack('<I', body_data[24:28])[0])
+            ).from_int(struct_unpack('<I', body_data[24:28])[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateDesiredAccessValueError from e
 
@@ -162,11 +162,11 @@ class CreateRequest(SMBv2RequestMessage):
             struct_pack('<I', self.impersonation_level.value),
             self.smb_create_flags,
             self._RESERVED,
-            struct_pack('<I', self.desired_access.to_mask()),
-            struct_pack('<I', self.file_attributes.to_mask()),
-            struct_pack('<I', self.share_access.to_mask()),
+            struct_pack('<I', int(self.desired_access)),
+            struct_pack('<I', int(self.file_attributes)),
+            struct_pack('<I', int(self.share_access)),
             struct_pack('<I', self.create_disposition),
-            struct_pack('<I', self.create_options.to_mask()),
+            struct_pack('<I', int(self.create_options)),
             struct_pack('<H', name_offset),
             struct_pack('<H', name_len),
             struct_pack('<I', create_contexts_offset),
@@ -193,7 +193,11 @@ class CreateRequest(SMBv2RequestMessage):
 
 @dataclass
 @register_smbv2_message
-class CreateResponse(SMBv2ResponseMessage):
+class CreateResponse(ResponseMessage):
+    STRUCTURE_SIZE: ClassVar[int] = 89
+    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CREATE
+    _RESERVED_2: ClassVar[bytes] = 4 * b'\x00'
+
     oplock_level: OplockLevel
     flags: Optional[CreateFlag]
     create_action: CreateAction
@@ -206,10 +210,6 @@ class CreateResponse(SMBv2ResponseMessage):
     file_attributes: FileAttributes
     file_id: FileId
     create_contexts: CreateContextList
-
-    STRUCTURE_SIZE: ClassVar[int] = 89
-    _command: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CREATE
-    _reserved_2: ClassVar[bytes] = 4 * b'\x00'
 
     @property
     def creation_time(self) -> datetime:
@@ -228,12 +228,12 @@ class CreateResponse(SMBv2ResponseMessage):
         return filetime_to_datetime(filetime=self._change_time)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: SMBv2Header) -> CreateResponse:
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> CreateResponse:
 
         body_data: bytes = data[len(header):]
 
         try:
-            cls.check_STRUCTURE_SIZE(STRUCTURE_SIZE_to_test=struct_unpack('<H', body_data[:2])[0])
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedCreateResponseError(str(e)) from e
 
@@ -244,7 +244,7 @@ class CreateResponse(SMBv2ResponseMessage):
 
         if isinstance(header, (SMB311SyncRequestHeader, SMB311AsyncHeader)):
             try:
-                flags = CreateFlag.from_mask(body_data[3])
+                flags = CreateFlag.from_int(body_data[3])
             except ValueError as e:
                 raise InvalidCreateResponseFlagError from e
         elif body_data[3] != 0x00:
@@ -259,7 +259,7 @@ class CreateResponse(SMBv2ResponseMessage):
             raise InvalidCreateResponseActionError from e
 
         try:
-            file_attributes = FileAttributes.from_mask(struct_unpack('<I', body_data[56:60])[0])
+            file_attributes = FileAttributes.from_int(struct_unpack('<I', body_data[56:60])[0])
         except ValueError as e:
             raise InvalidCreateResponseFileAttributesError from e
 
@@ -301,8 +301,8 @@ class CreateResponse(SMBv2ResponseMessage):
             struct_pack('<Q', self._change_time),
             struct_pack('<Q', self.allocation_size),
             struct_pack('<Q', self.endof_file),
-            struct_pack('<I', self.file_attributes.to_mask()),
-            self._reserved_2,
+            struct_pack('<I', int(self.file_attributes)),
+            self._RESERVED_2,
             bytes(self.file_id),
             struct_pack('<I', self.STRUCTURE_SIZE - 2),
             struct_pack('<I', create_contexts_len),

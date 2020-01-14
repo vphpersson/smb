@@ -6,9 +6,9 @@ from struct import unpack as struct_unpack, pack as struct_pack
 from typing import Dict, Union, Optional, ClassVar, Tuple, Type, Awaitable
 
 from smb.protocol_identifier import ProtocolIdentifier
-from smb.smb_header import SMBHeader
-from smb.v2.dialect import Dialect
-from smb.v2.ntstatus import NTSTATUS
+from smb.header import SMBHeader
+from smb.v2.structures.dialect import Dialect
+from smb.v2.structures.ntstatus import NTSTATUS
 
 from msdsalgs.utils import make_mask_class
 
@@ -50,7 +50,7 @@ SMBv2Flag = make_mask_class(SMBv2FlagMask, prefix='SMB2_FLAGS_')
 
 @dataclass
 class SMBv2Header(SMBHeader, ABC):
-    structure_size: ClassVar[int] = 64
+    STRUCTURE_SIZE: ClassVar[int] = 64
     protocol_identifier: ClassVar[ProtocolIdentifier] = ProtocolIdentifier.SMB_VERSION_2
     _reserved: ClassVar[bytes] = bytes(4)
     _reserved_2: ClassVar[bytes] = bytes(2)
@@ -72,8 +72,8 @@ class SMBv2Header(SMBHeader, ABC):
 
     @staticmethod
     def _base_from_bytes(data: bytes) -> Dict[str, Union[str, bytes, SMBv2Flag, SMBv2Command]]:
-        structure_size = struct_unpack('<H', data[4:6])[0]
-        if structure_size != SMBv2Header.structure_size:
+        STRUCTURE_SIZE = struct_unpack('<H', data[4:6])[0]
+        if STRUCTURE_SIZE != SMBv2Header.STRUCTURE_SIZE:
             # TODO: Use proper exception.
             raise ValueError
 
@@ -144,7 +144,7 @@ class SMBv2AsyncHeader(SMBv2ResponseHeader, SMBv2Header, ABC):
     def __bytes__(self) -> bytes:
         return b''.join([
             SMBv2Header.protocol_identifier.value,
-            struct_pack('<H', self.structure_size),
+            struct_pack('<H', self.STRUCTURE_SIZE),
             (
                 self._reserved_credit_change if isinstance(self, SMB202AsyncHeader)
                 else struct_pack('<H', getattr(self, 'credit_charge'))
@@ -196,7 +196,7 @@ class SMBv2SyncHeader(SMBv2Header, ABC):
 
         return b''.join([
             SMBv2Header.protocol_identifier.value,
-            struct_pack('<H', self.structure_size),
+            struct_pack('<H', self.STRUCTURE_SIZE),
             (
                 self._reserved_credit_change if isinstance(self, SMB202SyncRequestHeader)
                 else struct_pack('<H', getattr(self, 'credit_charge'))

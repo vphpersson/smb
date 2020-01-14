@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from abc import ABC
 from typing import Dict, Any, ClassVar, Type
 
-from smb.v2.dialect import Dialect
+from smb.v2.structures.dialect import Dialect
 
 
 @dataclass

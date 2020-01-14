@@ -5,7 +5,7 @@ from typing import Union, Optional, Final
 from ipaddress import IPv4Address, IPv6Address
 from asyncio import StreamWriter, StreamReader, open_connection as asyncio_open_connection, wait_for as asyncio_wait_for
 
-from smb.smb_message import SMBMessage
+from smb.message import SMBMessage
 
 
 class NotEnoughDataError(Exception):

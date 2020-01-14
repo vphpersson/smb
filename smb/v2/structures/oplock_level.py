@@ -1,0 +1,9 @@
+from enum import IntEnum
+
+
+class OplockLevel(IntEnum):
+    SMB2_OPLOCK_LEVEL_NONE = 0x00
+    SMB2_OPLOCK_LEVEL_II = 0x01
+    SMB2_OPLOCK_LEVEL_EXCLUSIVE = 0x08
+    SMB2_OPLOCK_LEVEL_BATCH = 0x09
+    SMB2_OPLOCK_LEVEL_LEASE = 0xFF

@@ -18,16 +18,78 @@ from smb.v2.structures.read_request_flag import ReadRequestFlag
 
 @dataclass
 @register_smbv2_message
+class ReadResponse(ResponseMessage):
+    buffer: bytes
+    data_remaining_length: int
+
+    STRUCTURE_SIZE: ClassVar[int] = 17
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
+    _RESERVED: ClassVar[bytes] = bytes(1)
+    _RESERVED_2: ClassVar[bytes] = bytes(4)
+
+    @property
+    def data_length(self) -> int:
+        return len(self.buffer)
+
+    @classmethod
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ReadResponse:
+
+        body_data = data[len(header):]
+
+        try:
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+        except IncorrectStructureSizeError as e:
+            raise MalformedReadResponseError(str(e)) from e
+
+        # TODO: The docs says that it should be ignored by the client; use strict mode?
+        reserved = body_data[3:4]
+        if reserved != cls._RESERVED:
+            raise NonEmptyReadResponseReservedValueError(observed_reserved_value=reserved)
+
+        reserved_2 = body_data[12:16]
+        if reserved_2 != cls._RESERVED_2:
+            raise NonEmptyReadResponseReserved2ValueError(observed_reserved_2_value=reserved_2)
+
+        data_offset: int = struct_unpack('<B', body_data[2:3])[0]
+        data_length: int = struct_unpack('<I', body_data[4:8])[0]
+
+        return cls(
+            header=header,
+            data_remaining_length=struct_unpack('<I', body_data[8:12])[0],
+            buffer=data[data_offset:data_offset+data_length]
+        )
+
+    def __bytes__(self) -> bytes:
+
+        data_offset = len(self.header) + self.STRUCTURE_SIZE - 1
+
+        return bytes(self.header) + b''.join([
+            struct_pack('<H', self.STRUCTURE_SIZE),
+            struct_pack('<B', data_offset),
+            self._RESERVED,
+            struct_pack('<I', len(self.buffer)),
+            struct_pack('<I', self.data_remaining_length),
+            self._RESERVED_2,
+            self.buffer
+        ])
+
+    def __len__(self) -> int:
+        return len(self.header) + (self.STRUCTURE_SIZE - 1) + len(self.buffer)
+
+
+@dataclass
+@register_smbv2_message
 class ReadRequest(RequestMessage, ABC):
     STRUCTURE_SIZE: ClassVar[int] = 49
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
+    RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = ReadResponse
+    _DIALECT_TO_CLASS: ClassVar[Dict[Dialect, Type[ReadRequest]]] = {}
+    _DIALECT: ClassVar[Dialect] = NotImplemented
+
     _RESERVED_FLAGS_VALUE: ClassVar[bytes] = bytes(1)
     _RESERVED_CHANNEL_VALUE: ClassVar[bytes] = bytes(4)
     _RESERVED_READ_CHANNEL_OFFSET: ClassVar[bytes] = bytes(2)
     _RESERVED_READ_CHANNEL_LENGTH: ClassVar[bytes] = bytes(2)
-
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
-    _DIALECT_TO_CLASS: ClassVar[Dict[Dialect, Type[ReadRequest]]] = {}
-    _DIALECT: ClassVar[Dialect] = NotImplemented
 
     padding: int
     length: int
@@ -107,12 +169,12 @@ class ReadRequest(RequestMessage, ABC):
         raise ValueError
 
     def _to_bytes(
-        self,
-        flags_bytes_value: bytes,
-        channel_bytes_value: bytes,
-        read_channel_offset_bytes_value: bytes,
-        read_channel_length_bytes_value: bytes,
-        read_channel_buffer: bytes
+            self,
+            flags_bytes_value: bytes,
+            channel_bytes_value: bytes,
+            read_channel_offset_bytes_value: bytes,
+            read_channel_length_bytes_value: bytes,
+            read_channel_buffer: bytes
     ) -> bytes:
         return bytes(self.header) + b''.join([
             struct_pack('<H', self.STRUCTURE_SIZE),
@@ -217,64 +279,3 @@ ReadRequest._DIALECT_TO_CLASS = {
     Dialect.SMB_3_0_2: ReadRequest302,
     Dialect.SMB_3_1_1: ReadRequest311
 }
-
-
-@dataclass
-@register_smbv2_message
-class ReadResponse(ResponseMessage):
-    buffer: bytes
-    data_remaining_length: int
-
-    STRUCTURE_SIZE: ClassVar[int] = 17
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
-    _RESERVED: ClassVar[bytes] = bytes(1)
-    _RESERVED_2: ClassVar[bytes] = bytes(4)
-
-    @property
-    def data_length(self) -> int:
-        return len(self.buffer)
-
-    @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ReadResponse:
-
-        body_data = data[len(header):]
-
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedReadResponseError(str(e)) from e
-
-        # TODO: The docs says that it should be ignored by the client; use strict mode?
-        reserved = body_data[3:4]
-        if reserved != cls._RESERVED:
-            raise NonEmptyReadResponseReservedValueError(observed_reserved_value=reserved)
-
-        reserved_2 = body_data[12:16]
-        if reserved_2 != cls._RESERVED_2:
-            raise NonEmptyReadResponseReserved2ValueError(observed_reserved_2_value=reserved_2)
-
-        data_offset: int = struct_unpack('<B', body_data[2:3])[0]
-        data_length: int = struct_unpack('<I', body_data[4:8])[0]
-
-        return cls(
-            header=header,
-            data_remaining_length=struct_unpack('<I', body_data[8:12])[0],
-            buffer=data[data_offset:data_offset+data_length]
-        )
-
-    def __bytes__(self) -> bytes:
-
-        data_offset = len(self.header) + self.STRUCTURE_SIZE - 1
-
-        return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<B', data_offset),
-            self._RESERVED,
-            struct_pack('<I', len(self.buffer)),
-            struct_pack('<I', self.data_remaining_length),
-            self._RESERVED_2,
-            self.buffer
-        ])
-
-    def __len__(self) -> int:
-        return len(self.header) + (self.STRUCTURE_SIZE - 1) + len(self.buffer)

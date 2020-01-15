@@ -24,7 +24,7 @@ from smb.transport import Transport, TCPIPTransport
 from smb.v2.header import Header, SMBv2Command, AsyncHeader, SMB210SyncRequestHeader
 from smb.v2.client_parameters import PREFERRED_DIALECT, CLIENT_GUID, SECURITY_MODE, REQUIRE_MESSAGE_SIGNING
 from smb.v2.session import SMB210Session
-from smb.v2.messages import Message, calculate_credit_charge
+from smb.v2.messages import Message, RequestMessage, ResponseMessage, calculate_credit_charge
 from smb.v2.messages.negotiate import NegotiateRequest, NegotiateResponse
 from smb.v2.messages.session_setup import SessionSetupRequest, SessionSetupResponse
 from smb.v2.messages.tree_connect import TreeConnectRequest210, TreeConnectResponse, ShareType
@@ -220,6 +220,25 @@ class Connection(SMBConnectionBase):
 
         return response_message_future
 
+    async def _obtain_response(self, request_message: RequestMessage, await_async_response: bool = True):
+        response_message: Message = await (await self._send_message(request_message=request_message))
+
+        if not isinstance(response_message, ResponseMessage):
+            # TODO: Raise proper exception.
+            raise ValueError
+
+        if isinstance(response_message, ErrorResponse):
+            if response_message.header.status.real_status is NTStatusValue.STATUS_PENDING and isinstance(response_message.header, AsyncHeader):
+                return await response_message.header.async_response_message_future if await_async_response else response_message
+            else:
+                raise NTStatusValueError.from_nt_status(response_message.header.status.real_status)
+
+        if not isinstance(response_message, request_message.RESPONSE_MESSAGE_CLASS):
+            # TODO: Raise proper exception.
+            raise ValueError
+
+        return response_message
+
     async def negotiate(self) -> None:
         """
         Negotiate the SMB dialect to be used.
@@ -228,21 +247,16 @@ class Connection(SMBConnectionBase):
         """
 
         # TODO: In future, I want to support more dialects.
-        negotiate_response: Message = await (
-            await self._send_message(
-                NegotiateRequest(
-                    header=SMB210SyncRequestHeader(
-                        command=SMBv2Command.SMB2_NEGOTIATE
-                    ),
-                    dialects=(PREFERRED_DIALECT,),
-                    client_guid=CLIENT_GUID,
-                    security_mode=SECURITY_MODE
-                )
+        negotiate_response: NegotiateResponse = await self._obtain_response(
+            request_message=NegotiateRequest(
+                header=SMB210SyncRequestHeader(
+                    command=SMBv2Command.SMB2_NEGOTIATE
+                ),
+                dialects=(PREFERRED_DIALECT,),
+                client_guid=CLIENT_GUID,
+                security_mode=SECURITY_MODE
             )
         )
-        if not isinstance(negotiate_response, NegotiateResponse):
-            # TODO: Use proper exception.
-            raise ValueError
 
         negotiated_details_base_kwargs = dict(
             dialect=negotiate_response.dialect_revision,
@@ -344,35 +358,27 @@ class Connection(SMBConnectionBase):
         else:
             raise NotImplementedError
 
-        session_setup_response_1: Message = await (
-            await self._send_message(
-                SessionSetupRequest(
-                    header=Header.from_dialect(
-                        dialect=self.negotiated_details.dialect,
-                        async_status=False,
-                        is_response=False,
-                        command=SMBv2Command.SMB2_SESSION_SETUP
-                    ),
-                    security_mode=SECURITY_MODE,
-                    security_buffer=bytes(
-                        NegTokenInit(
-                            mech_types=[mech_type],
-                            # A serialized NTLM Negotiate message.
-                            mech_token=bytes(next(ntlm_context))
-                        )
+        session_setup_response_1: SessionSetupResponse = await self._obtain_response(
+            request_message=SessionSetupRequest(
+                header=Header.from_dialect(
+                    dialect=self.negotiated_details.dialect,
+                    async_status=False,
+                    is_response=False,
+                    command=SMBv2Command.SMB2_SESSION_SETUP
+                ),
+                security_mode=SECURITY_MODE,
+                security_buffer=bytes(
+                    NegTokenInit(
+                        mech_types=[mech_type],
+                        # A serialized NTLM Negotiate message.
+                        mech_token=bytes(next(ntlm_context))
                     )
                 )
             )
         )
-        if not isinstance(session_setup_response_1, SessionSetupResponse):
-            # TODO: Use proper exception.
-            raise ValueError
 
         # TODO: "The client MUST attempt to locate a session in Connection.SessionTable by using the SessionId in the
         #  SMB2 header"
-
-        if session_setup_response_1.header.status.real_status is not NTStatusValue.STATUS_MORE_PROCESSING_REQUIRED:
-            raise NotImplementedError
 
         neg_token_resp_1 = NegTokenResp.from_bytes(session_setup_response_1.security_buffer)
         if neg_token_resp_1.neg_state is not NegTokenRespNegState.ACCEPT_INCOMPLETE:
@@ -389,25 +395,23 @@ class Connection(SMBConnectionBase):
             connection=self
         )
 
-        session_setup_response_2: Message = await (
-            await self._send_message(
-                request_message=SessionSetupRequest(
-                    header=Header.from_dialect(
-                        dialect=self.negotiated_details.dialect,
-                        async_status=False,
-                        is_response=False,
-                        command=SMBv2Command.SMB2_SESSION_SETUP,
-                        session_id=smb_session.session_id
-                    ),
-                    security_mode=SECURITY_MODE,
-                    security_buffer=bytes(
-                        NegTokenResp(
-                            # A serialized NTLM Authenticate message.
-                            response_token=bytes(
-                                ntlm_context.send(
-                                    NTLMChallengeMessage.from_bytes(
-                                        message_bytes=neg_token_resp_1.response_token
-                                    )
+        session_setup_response_2: SessionSetupResponse = await self._obtain_response(
+            request_message=SessionSetupRequest(
+                header=Header.from_dialect(
+                    dialect=self.negotiated_details.dialect,
+                    async_status=False,
+                    is_response=False,
+                    command=SMBv2Command.SMB2_SESSION_SETUP,
+                    session_id=smb_session.session_id
+                ),
+                security_mode=SECURITY_MODE,
+                security_buffer=bytes(
+                    NegTokenResp(
+                        # A serialized NTLM Authenticate message.
+                        response_token=bytes(
+                            ntlm_context.send(
+                                NTLMChallengeMessage.from_bytes(
+                                    message_bytes=neg_token_resp_1.response_token
                                 )
                             )
                         )
@@ -415,13 +419,6 @@ class Connection(SMBConnectionBase):
                 )
             )
         )
-        if not isinstance(session_setup_response_2, SessionSetupResponse):
-            # TODO: Use proper exception.
-            raise ValueError
-
-        if session_setup_response_2.header.status.real_status is not NTStatusValue.STATUS_SUCCESS:
-            # TODO: Use proper exception.
-            raise ValueError
 
         neg_token_resp_2 = NegTokenResp.from_bytes(data=session_setup_response_2.security_buffer)
         if neg_token_resp_2.neg_state is not NegTokenRespNegState.ACCEPT_COMPLETE:
@@ -443,17 +440,11 @@ class Connection(SMBConnectionBase):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        logoff_response: Message = await (
-            await self._send_message(
-                request_message=LogoffRequest(
-                    header=SMB210SyncRequestHeader(command=SMBv2Command.SMB2_LOGOFF, session_id=session.session_id)
-                )
+        await self._obtain_response(
+            request_message=LogoffRequest(
+                header=SMB210SyncRequestHeader(command=SMBv2Command.SMB2_LOGOFF, session_id=session.session_id)
             )
         )
-
-        if not isinstance(logoff_response, LogoffResponse):
-            # TODO: Raise proper exception.
-            raise ValueError
 
     @asynccontextmanager
     async def setup_session(
@@ -496,20 +487,15 @@ class Connection(SMBConnectionBase):
         # TODO: "If ServerName is an empty string, the server MUST set it as "*" to indicate that the local server name
         #  used." -- Does this mean that I don't need a server address!?
 
-        tree_connect_response: Message = await (
-            await self._send_message(
-                request_message=TreeConnectRequest210(
-                    header=SMB210SyncRequestHeader(
-                        command=SMBv2Command.SMB2_TREE_CONNECT,
-                        session_id=session.session_id,
-                    ),
-                    path=f'\\\\{server_address or self._host_address}\\{share_name}'
-                )
+        tree_connect_response: TreeConnectResponse = await self._obtain_response(
+            request_message=TreeConnectRequest210(
+                header=SMB210SyncRequestHeader(
+                    command=SMBv2Command.SMB2_TREE_CONNECT,
+                    session_id=session.session_id,
+                ),
+                path=f'\\\\{server_address or self._host_address}\\{share_name}'
             )
         )
-        if not isinstance(tree_connect_response, TreeConnectResponse):
-            # TODO: Raise proper exception.
-            raise ValueError
 
         tree_connect_object = TreeConnectObject(
             tree_connect_id=tree_connect_response.header.tree_id,
@@ -536,21 +522,15 @@ class Connection(SMBConnectionBase):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        tree_disconnect_response: Message = await (
-            await self._send_message(
-                request_message=TreeDisconnectRequest(
-                    header=SMB210SyncRequestHeader(
-                        command=SMBv2Command.SMB2_TREE_DISCONNECT,
-                        session_id=session.session_id,
-                        tree_id=tree_id
-                    )
+        await self._obtain_response(
+            request_message=TreeDisconnectRequest(
+                header=SMB210SyncRequestHeader(
+                    command=SMBv2Command.SMB2_TREE_DISCONNECT,
+                    session_id=session.session_id,
+                    tree_id=tree_id
                 )
             )
         )
-
-        if not isinstance(tree_disconnect_response, TreeDisconnectResponse):
-            # TODO: Raise proper exception.
-            raise ValueError
 
     @asynccontextmanager
     async def tree_connect(
@@ -600,38 +580,28 @@ class Connection(SMBConnectionBase):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        response: Message = await (
-            await self._send_message(
-                request_message=CreateRequest(
-                    header=SMB210SyncRequestHeader(
-                        command=SMBv2Command.SMB2_CREATE,
-                        session_id=session.session_id,
-                        tree_id=tree_id,
-                    ),
-                    requested_oplock_level=requested_oplock_level,
-                    impersonation_level=impersonation_level,
-                    desired_access=desired_access,
-                    file_attributes=file_attributes,
-                    share_access=share_access,
-                    create_disposition=create_disposition,
-                    create_options=create_options,
-                    name=str(path),
-                    create_context_list=create_context_list
-                )
+        create_response: CreateResponse = await self._obtain_response(
+            request_message=CreateRequest(
+                header=SMB210SyncRequestHeader(
+                    command=SMBv2Command.SMB2_CREATE,
+                    session_id=session.session_id,
+                    tree_id=tree_id,
+                ),
+                requested_oplock_level=requested_oplock_level,
+                impersonation_level=impersonation_level,
+                desired_access=desired_access,
+                file_attributes=file_attributes,
+                share_access=share_access,
+                create_disposition=create_disposition,
+                create_options=create_options,
+                name=str(path),
+                create_context_list=create_context_list
             )
         )
 
-        if isinstance(response, ErrorResponse):
-            raise NTStatusValueError.from_nt_status(response.header.status.real_status)
-
-        if not isinstance(response, CreateResponse):
-            # TODO: Raise proper exception.
-            raise ValueError
-
         # TODO: I need to add stuff to some connection table, don't I?
-
         # TODO: Consider what to return from this function. There is a lot of information in the response.
-        return response
+        return create_response
 
     async def close(self, session: SMBv2Session, tree_id: int, file_id: FileId) -> None:
         """
@@ -646,23 +616,17 @@ class Connection(SMBConnectionBase):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        close_response: Message = await (
-            await self._send_message(
-                request_message=CloseRequest(
-                    header=SMB210SyncRequestHeader(
-                        command=SMBv2Command.SMB2_CLOSE,
-                        session_id=session.session_id,
-                        tree_id=tree_id
-                    ),
-                    flags=CloseFlag(),
-                    file_id=file_id
-                )
+        await self._obtain_response(
+            request_message=CloseRequest(
+                header=SMB210SyncRequestHeader(
+                    command=SMBv2Command.SMB2_CLOSE,
+                    session_id=session.session_id,
+                    tree_id=tree_id
+                ),
+                flags=CloseFlag(),
+                file_id=file_id
             )
         )
-
-        if not isinstance(close_response, CloseResponse):
-            # TODO: Use proper exception.
-            raise ValueError
 
     @asynccontextmanager
     async def create(
@@ -801,49 +765,30 @@ class Connection(SMBConnectionBase):
             data_remains = True
             offset = 0
             while data_remains:
-                message_response: Message = await (
-                    await self._send_message(
-                        request_message=ReadRequest210(
-                            header=SMB210SyncRequestHeader(
-                                command=SMBv2Command.SMB2_READ,
-                                session_id=session.session_id,
-                                tree_id=tree_id,
-                                credit_charge=calculate_credit_charge(
-                                    variable_payload_size=0,
-                                    expected_maximum_response_size=file_size
-                                )
-                            ),
-                            padding=Header.STRUCTURE_SIZE + (ReadResponse.STRUCTURE_SIZE - 1),
-                            length=file_size,
-                            offset=offset,
-                            file_id=file_id,
-                            minimum_count=0,
-                            remaining_bytes=0
-                        )
+                read_response: ReadResponse = await self._obtain_response(
+                    request_message=ReadRequest210(
+                        header=SMB210SyncRequestHeader(
+                            command=SMBv2Command.SMB2_READ,
+                            session_id=session.session_id,
+                            tree_id=tree_id,
+                            credit_charge=calculate_credit_charge(
+                                variable_payload_size=0,
+                                expected_maximum_response_size=file_size
+                            )
+                        ),
+                        padding=Header.STRUCTURE_SIZE + (ReadResponse.STRUCTURE_SIZE - 1),
+                        length=file_size,
+                        offset=offset,
+                        file_id=file_id,
+                        minimum_count=0,
+                        remaining_bytes=0
                     )
                 )
 
-                if isinstance(message_response, ErrorResponse):
-                    if message_response.header.status.real_status is NTStatusValue.STATUS_PENDING:
-                        if isinstance(message_response.header, AsyncHeader):
-                            # NOTE: The `async_response_message_future` attribute could be `None`, resulting in a
-                            # `TypeError` being raised.
-                            message_response = await message_response.header.async_response_message_future
-                        else:
-                            # TODO: Use proper exception.
-                            raise ValueError
-                    else:
-                        # TODO: Use corresponding exception. `StatusException.from_status(...)`?
-                        raise ValueError
+                yield read_response.buffer
 
-                if not isinstance(message_response, ReadResponse):
-                    # TODO: Use proper exception.
-                    raise ValueError
-
-                yield message_response.buffer
-
-                data_remains = message_response.data_remaining_length != 0
-                offset += message_response.data_length
+                data_remains = read_response.data_remaining_length != 0
+                offset += read_response.data_length
 
         async def merge_read_chunks() -> bytes:
             return b''.join([chunk async for chunk in read_chunks()])
@@ -878,30 +823,24 @@ class Connection(SMBConnectionBase):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        write_response: Message = await (
-            await self._send_message(
-                request_message=WriteRequest210(
-                    header=SMB210SyncRequestHeader(
-                        command=SMBv2Command.SMB2_WRITE,
-                        session_id=session.session_id,
-                        tree_id=tree_id,
-                        credit_charge=calculate_credit_charge(
-                            variable_payload_size=0,
-                            expected_maximum_response_size=Header.STRUCTURE_SIZE + WriteResponse.STRUCTURE_SIZE
-                        )
-                    ),
-                    write_data=write_data,
-                    offset=offset,
-                    file_id=file_id,
-                    remaining_bytes=remaining_bytes,
-                    flags=flags
-                )
+        write_response: WriteResponse = await self._obtain_response(
+            request_message=WriteRequest210(
+                header=SMB210SyncRequestHeader(
+                    command=SMBv2Command.SMB2_WRITE,
+                    session_id=session.session_id,
+                    tree_id=tree_id,
+                    credit_charge=calculate_credit_charge(
+                        variable_payload_size=0,
+                        expected_maximum_response_size=Header.STRUCTURE_SIZE + WriteResponse.STRUCTURE_SIZE
+                    )
+                ),
+                write_data=write_data,
+                offset=offset,
+                file_id=file_id,
+                remaining_bytes=remaining_bytes,
+                flags=flags
             )
         )
-
-        if not isinstance(write_response, WriteResponse):
-            # TODO: Use proper exception.
-            raise ValueError
 
         return write_response.count
 
@@ -936,29 +875,23 @@ class Connection(SMBConnectionBase):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        query_directory_response: Message = await (
-            await self._send_message(
-                request_message=QueryDirectoryRequest(
-                    header=SMB210SyncRequestHeader(
-                        command=SMBv2Command.SMB2_QUERY_DIRECTORY,
-                        session_id=session.session_id,
-                        tree_id=tree_id,
-                        # TODO: Consider this value.
-                        credit_charge=64
-                    ),
-                    file_information_class=file_information_class,
-                    flags=query_directory_flag,
-                    file_id=file_id,
-                    file_name=file_name_pattern,
-                    file_index=file_index,
-                    output_buffer_length=output_buffer_length
-                )
+        query_directory_response: QueryDirectoryResponse = await self._obtain_response(
+            request_message=QueryDirectoryRequest(
+                header=SMB210SyncRequestHeader(
+                    command=SMBv2Command.SMB2_QUERY_DIRECTORY,
+                    session_id=session.session_id,
+                    tree_id=tree_id,
+                    # TODO: Consider this value.
+                    credit_charge=64
+                ),
+                file_information_class=file_information_class,
+                flags=query_directory_flag,
+                file_id=file_id,
+                file_name=file_name_pattern,
+                file_index=file_index,
+                output_buffer_length=output_buffer_length
             )
         )
-
-        if not isinstance(query_directory_response, QueryDirectoryResponse):
-            # TODO: Use proper exception.
-            raise ValueError
 
         if file_information_class is FileInformationClass.FileDirectoryInformation:
             return query_directory_response.file_directory_information()
@@ -995,45 +928,21 @@ class Connection(SMBConnectionBase):
         if self.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError
 
-        message_response = await (
-            await self._send_message(
-                ChangeNotifyRequest(
-                    header=SMB210SyncRequestHeader(
-                        command=SMBv2Command.SMB2_CHANGE_NOTIFY,
-                        session_id=session.session_id,
-                        tree_id=tree_id,
-                        # TODO: Arbitrary number. Reconsider.
-                        credit_charge=64
-                    ),
-                    flags=ChangeNotifyFlag(watch_tree=watch_tree),
-                    file_id=file_id,
-                    completion_filter=completion_filter_flag
-                )
-            )
+        return await self._obtain_response(
+            request_message=ChangeNotifyRequest(
+                header=SMB210SyncRequestHeader(
+                    command=SMBv2Command.SMB2_CHANGE_NOTIFY,
+                    session_id=session.session_id,
+                    tree_id=tree_id,
+                    # TODO: Arbitrary number. Reconsider.
+                    credit_charge=64
+                ),
+                flags=ChangeNotifyFlag(watch_tree=watch_tree),
+                file_id=file_id,
+                completion_filter=completion_filter_flag
+            ),
+            await_async_response=False
         )
-
-        # TODO: This code is duplicated. Can it put in a function?
-        if isinstance(message_response, ErrorResponse):
-            if message_response.header.status.real_status is NTStatusValue.STATUS_PENDING:
-                if isinstance(message_response.header, AsyncHeader):
-                    # NOTE: The `async_response_message_future` attribute could be `None`, resulting in a
-                    # `TypeError` being raised.
-                    message_response = await message_response.header.async_response_message_future
-                else:
-                    # TODO: Use proper exception.
-                    raise ValueError
-            else:
-                # TODO: Use corresponding exception. `StatusException.from_status(...)`?
-                raise ValueError
-
-        if not isinstance(message_response, ChangeNotifyResponse):
-            # TODO: Use proper exception.
-            raise ValueError
-
-        # TODO: It is here I should register a done callback popping the dict, yes?
-        return self.async_key_to_response_message_future[
-            (message_response.header.message_id, message_response.header.async_id)
-        ]
 
     @asynccontextmanager
     async def make_smbv2_transport(

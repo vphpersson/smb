@@ -14,9 +14,43 @@ from smb.v2.structures.session_flag import SessionFlag
 
 @dataclass
 @register_smbv2_message
+class SessionSetupResponse(ResponseMessage):
+    session_flags: SessionFlag
+    security_buffer: bytes
+
+    STRUCTURE_SIZE: ClassVar[int] = 9
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
+
+    @classmethod
+    def _from_bytes_and_header(cls, data: bytes, header: Header):
+        body_data: bytes = data[len(header):]
+
+        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+
+        security_buffer_offset: int = struct_unpack('<H', body_data[4:6])[0]
+        security_buffer_length: int = struct_unpack('<H', body_data[6:8])[0]
+
+        return SessionSetupResponse(
+            header=header,
+            session_flags=SessionFlag(struct_unpack('<H', body_data[2:4])[0]),
+            security_buffer=data[security_buffer_offset:security_buffer_offset+security_buffer_length]
+        )
+
+    # TODO: Implement.
+    def __bytes__(self) -> bytes:
+        ...
+
+    # TODO: Implement.
+    def __len__(self) -> int:
+        ...
+
+
+@dataclass
+@register_smbv2_message
 class SessionSetupRequest(RequestMessage):
     STRUCTURE_SIZE: ClassVar[int] = 25
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
+    RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = SessionSetupResponse
     _RESERVED_CHANNEL: ClassVar[bytes] = bytes(4)
 
     security_mode: SecurityMode
@@ -66,36 +100,3 @@ class SessionSetupRequest(RequestMessage):
             self.previous_session_id,
             self.security_buffer
         ])
-
-
-@dataclass
-@register_smbv2_message
-class SessionSetupResponse(ResponseMessage):
-    session_flags: SessionFlag
-    security_buffer: bytes
-
-    STRUCTURE_SIZE: ClassVar[int] = 9
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
-
-    @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header):
-        body_data: bytes = data[len(header):]
-
-        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-
-        security_buffer_offset: int = struct_unpack('<H', body_data[4:6])[0]
-        security_buffer_length: int = struct_unpack('<H', body_data[6:8])[0]
-
-        return SessionSetupResponse(
-            header=header,
-            session_flags=SessionFlag(struct_unpack('<H', body_data[2:4])[0]),
-            security_buffer=data[security_buffer_offset:security_buffer_offset+security_buffer_length]
-        )
-
-    # TODO: Implement.
-    def __bytes__(self) -> bytes:
-        ...
-
-    # TODO: Implement.
-    def __len__(self) -> int:
-        ...

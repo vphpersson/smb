@@ -16,10 +16,56 @@ from smb.v2.structures.completion_filter_flag import CompletionFilterFlag
 
 @dataclass
 @register_smbv2_message
-class ChangeNotifyRequest(RequestMessage):
+class ChangeNotifyResponse(ResponseMessage):
+    STRUCTURE_SIZE: ClassVar[int] = 9
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CHANGE_NOTIFY
 
+    file_notify_entries: Tuple[FileNotifyInformation, ...]
+
+    @classmethod
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ChangeNotifyResponse:
+        body_data: bytes = data[len(header):]
+
+        try:
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+        except IncorrectStructureSizeError as e:
+            ...
+
+        output_buffer_offset: int = struct_unpack('<H', body_data[2:4])[0]
+        output_buffer_length: int = struct_unpack('<I', body_data[4:8])[0]
+
+        return cls(
+            header=header,
+            file_notify_entries=tuple(
+                extract_elements(
+                    data=data[output_buffer_offset:output_buffer_offset+output_buffer_length],
+                    create_element=lambda data: FileNotifyInformation.from_bytes(data=data),
+                    get_next_offset=lambda element: element.next_entry_offset
+                )
+            )
+        )
+
+    def __len__(self) -> int:
+        return self.header.STRUCTURE_SIZE + (self.STRUCTURE_SIZE - 1) + sum(len(entry) for entry in self.file_notify_entries)
+
+    def __bytes__(self) -> bytes:
+        output_buffer_offset: int = self.header.STRUCTURE_SIZE + self.STRUCTURE_SIZE - 1
+        output_buffer_bytes: bytes = b''.join(bytes(entry) for entry in self.file_notify_entries)
+
+        return bytes(self.header) + b''.join([
+            struct_pack('<H', self.STRUCTURE_SIZE),
+            struct_pack('<H', output_buffer_offset),
+            struct_pack('<I', len(output_buffer_bytes)),
+            output_buffer_bytes
+        ])
+
+
+@dataclass
+@register_smbv2_message
+class ChangeNotifyRequest(RequestMessage):
     STRUCTURE_SIZE: ClassVar[int] = 32
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CHANGE_NOTIFY
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CHANGE_NOTIFY
+    RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = ChangeNotifyResponse
     _RESERVED: ClassVar[bytes] = bytes(4)
 
     flags: ChangeNotifyFlag
@@ -61,49 +107,3 @@ class ChangeNotifyRequest(RequestMessage):
 
     def __len__(self) -> int:
         return self.header.STRUCTURE_SIZE + self.STRUCTURE_SIZE
-
-
-@dataclass
-@register_smbv2_message
-class ChangeNotifyResponse(ResponseMessage):
-    STRUCTURE_SIZE: ClassVar[int] = 9
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CHANGE_NOTIFY
-
-    file_notify_entries: Tuple[FileNotifyInformation, ...]
-
-    @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ChangeNotifyResponse:
-        body_data: bytes = data[len(header):]
-
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            ...
-
-        output_buffer_offset: int = struct_unpack('<H', body_data[2:4])[0]
-        output_buffer_length: int = struct_unpack('<I', body_data[4:8])[0]
-
-        return cls(
-            header=header,
-            file_notify_entries=tuple(
-                extract_elements(
-                    data=data[output_buffer_offset:output_buffer_offset+output_buffer_length],
-                    create_element=lambda data: FileNotifyInformation.from_bytes(data=data),
-                    get_next_offset=lambda element: element.next_entry_offset
-                )
-            )
-        )
-
-    def __len__(self) -> int:
-        return self.header.STRUCTURE_SIZE + (self.STRUCTURE_SIZE - 1) + sum(len(entry) for entry in self.file_notify_entries)
-
-    def __bytes__(self) -> bytes:
-        output_buffer_offset: int = self.header.STRUCTURE_SIZE + self.STRUCTURE_SIZE - 1
-        output_buffer_bytes: bytes = b''.join(bytes(entry) for entry in self.file_notify_entries)
-
-        return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<H', output_buffer_offset),
-            struct_pack('<I', len(output_buffer_bytes)),
-            output_buffer_bytes
-        ])

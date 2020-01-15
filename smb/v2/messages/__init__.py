@@ -19,8 +19,8 @@ class Message(SMBMessageBase, ABC):
     header: Header
 
     STRUCTURE_SIZE: ClassVar[int] = NotImplemented
-    _COMMAND: ClassVar[SMBv2Command] = NotImplemented
-    _command_and_type_to_class: ClassVar[Dict[Tuple[SMBv2Command, bool], Type[Message]]] = {}
+    COMMAND: ClassVar[SMBv2Command] = NotImplemented
+    _COMMAND_AND_TYPE_TO_CLASS: ClassVar[Dict[Tuple[SMBv2Command, bool], Type[Message]]] = {}
 
     @classmethod
     def check_structure_size(cls, structure_size_to_test: int) -> None:
@@ -54,12 +54,12 @@ class Message(SMBMessageBase, ABC):
 
         try:
             if cls != Message:
-                if lookup_key_tuple != (cls._COMMAND, issubclass(cls, ResponseMessage)):
+                if lookup_key_tuple != (cls.COMMAND, issubclass(cls, ResponseMessage)):
                     # TODO: Use proper exception.
                     raise ValueError
                 return cls._from_bytes_and_header(data=data, header=header)
             else:
-                return cls._command_and_type_to_class[lookup_key_tuple]._from_bytes_and_header(data=data, header=header)
+                return cls._COMMAND_AND_TYPE_TO_CLASS[lookup_key_tuple]._from_bytes_and_header(data=data, header=header)
         except MalformedSMBv2MessageError as e:
             try:
                 return ErrorResponse._from_bytes_and_header(data=data, header=header)
@@ -69,6 +69,7 @@ class Message(SMBMessageBase, ABC):
 
 @dataclass
 class RequestMessage(Message, ABC):
+    RESPONSE_MESSAGE_CLASS: ClassVar[Type[RequestMessage]] = NotImplemented
     header: RequestHeader
 
 
@@ -78,5 +79,5 @@ class ResponseMessage(Message, ABC):
 
 
 def register_smbv2_message(cls: Type[Message]):
-    cls._command_and_type_to_class[(cls._COMMAND, issubclass(cls, ResponseMessage))] = cls
+    cls._COMMAND_AND_TYPE_TO_CLASS[(cls.COMMAND, issubclass(cls, ResponseMessage))] = cls
     return cls

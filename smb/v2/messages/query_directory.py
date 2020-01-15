@@ -18,11 +18,65 @@ from smb.v2.structures.query_directory_flag import QueryDirectoryFlag
 
 @dataclass
 @register_smbv2_message
+class QueryDirectoryResponse(ResponseMessage):
+    STRUCTURE_SIZE: ClassVar[int] = 9
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_QUERY_DIRECTORY
+
+    # TODO: `InitVar`?
+    _buffer: bytes
+
+    @classmethod
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> QueryDirectoryResponse:
+
+        body_data: bytes = data[len(header):]
+
+        try:
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+        except IncorrectStructureSizeError as e:
+            raise MalformedQueryDirectoryResponseError(str(e)) from e
+
+        output_buffer_offset: int = struct_unpack('<H', body_data[2:4])[0]
+        output_buffer_length: int = struct_unpack('<I', body_data[4:8])[0]
+
+        return cls(header=header, _buffer=data[output_buffer_offset:output_buffer_offset+output_buffer_length])
+
+    def __len__(self) -> int:
+        return len(self.header) + (self.STRUCTURE_SIZE - 1) + len(self._buffer)
+
+    def __bytes__(self) -> bytes:
+        output_buffer_offset: int = len(self.header) + self.STRUCTURE_SIZE - 1
+        return bytes(self.header) + b''.join([
+            struct_pack('<H', self.STRUCTURE_SIZE),
+            struct_pack('<H', output_buffer_offset),
+            struct_pack('<I', len(self._buffer)),
+            self._buffer
+        ])
+
+    def file_directory_information(self) -> List[FileDirectoryInformation]:
+        return extract_elements(
+            data=self._buffer,
+            create_element=lambda data: FileDirectoryInformation.from_bytes(data=data),
+            get_next_offset=lambda element: element.next_entry_offset
+        )
+
+    def file_id_full_directory_information(self) -> List[FileIdFullDirectoryInformation]:
+        return extract_elements(
+            data=self._buffer,
+            create_element=lambda data: FileIdFullDirectoryInformation.from_bytes(data=data),
+            get_next_offset=lambda element: element.next_entry_offset
+        )
+
+
+@dataclass
+@register_smbv2_message
 class QueryDirectoryRequest(RequestMessage):
     """
     [MS-SMB2]: SMB2 QUERY_DIRECTORY Request | Microsoft Docs
     https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/10906442-294c-46d3-8515-c277efe1f752
     """
+    STRUCTURE_SIZE: ClassVar[int] = 33
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_QUERY_DIRECTORY
+    RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = QueryDirectoryResponse
 
     file_information_class: FileInformationClass
     flags: QueryDirectoryFlag
@@ -30,9 +84,6 @@ class QueryDirectoryRequest(RequestMessage):
     file_name: str
     output_buffer_length: int
     file_index: int = 0
-
-    STRUCTURE_SIZE: ClassVar[int] = 33
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_QUERY_DIRECTORY
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> QueryDirectoryRequest:
@@ -92,53 +143,3 @@ class QueryDirectoryRequest(RequestMessage):
             struct_pack('<I', self.output_buffer_length),
             file_name_bytes or b'\x00'
         ])
-
-
-@dataclass
-@register_smbv2_message
-class QueryDirectoryResponse(ResponseMessage):
-
-    _buffer: bytes
-    STRUCTURE_SIZE: ClassVar[int] = 9
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_QUERY_DIRECTORY
-
-    @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> QueryDirectoryResponse:
-
-        body_data: bytes = data[len(header):]
-
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedQueryDirectoryResponseError(str(e)) from e
-
-        output_buffer_offset: int = struct_unpack('<H', body_data[2:4])[0]
-        output_buffer_length: int = struct_unpack('<I', body_data[4:8])[0]
-
-        return cls(header=header, _buffer=data[output_buffer_offset:output_buffer_offset+output_buffer_length])
-
-    def __len__(self) -> int:
-        return len(self.header) + (self.STRUCTURE_SIZE - 1) + len(self._buffer)
-
-    def __bytes__(self) -> bytes:
-        output_buffer_offset: int = len(self.header) + self.STRUCTURE_SIZE - 1
-        return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<H', output_buffer_offset),
-            struct_pack('<I', len(self._buffer)),
-            self._buffer
-        ])
-
-    def file_directory_information(self) -> List[FileDirectoryInformation]:
-        return extract_elements(
-            data=self._buffer,
-            create_element=lambda data: FileDirectoryInformation.from_bytes(data=data),
-            get_next_offset=lambda element: element.next_entry_offset
-        )
-
-    def file_id_full_directory_information(self) -> List[FileIdFullDirectoryInformation]:
-        return extract_elements(
-            data=self._buffer,
-            create_element=lambda data: FileIdFullDirectoryInformation.from_bytes(data=data),
-            get_next_offset=lambda element: element.next_entry_offset
-        )

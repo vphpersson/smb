@@ -13,16 +13,67 @@ from smb.v2.structures.write_flag import WriteFlag
 
 @dataclass
 @register_smbv2_message
+class WriteResponse(ResponseMessage):
+    STRUCTURE_SIZE: ClassVar[int] = 17
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_WRITE
+
+    _RESERVED: ClassVar[bytes] = bytes(2)
+    _RESERVED_REMAINING: ClassVar[bytes] = bytes(4)
+    _RESERVED_WRITE_CHANNEL_INFO_OFFSET: ClassVar[bytes] = bytes(2)
+    _RESERVED_WRITE_CHANNEL_INFO_LENGTH: ClassVar[bytes] = bytes(2)
+
+    count: int
+
+    @classmethod
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> WriteResponse:
+        body_bytes: bytes = data[len(header):]
+
+        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
+
+        if body_bytes[2:4] != cls._RESERVED:
+            # TODO: Use proper exception.
+            raise ValueError
+
+        if body_bytes[8:12] != cls._RESERVED_REMAINING:
+            # TODO: Use proper exception.
+            raise ValueError
+
+        if body_bytes[12:14] != cls._RESERVED_WRITE_CHANNEL_INFO_OFFSET:
+            # TODO: Use proper exception.
+            raise ValueError
+
+        if body_bytes[14:16] != cls._RESERVED_WRITE_CHANNEL_INFO_LENGTH:
+            # TODO: Use proper exception.
+            raise ValueError
+
+        return cls(header=header, count=struct_unpack('<I', body_bytes[4:8])[0])
+
+    def __bytes__(self) -> bytes:
+        return bytes(self.header) + b''.join([
+            struct_pack('<H', self.STRUCTURE_SIZE),
+            self._RESERVED,
+            struct_pack('<I', self.count),
+            self._RESERVED_REMAINING,
+            self._RESERVED_WRITE_CHANNEL_INFO_OFFSET,
+            self._RESERVED_WRITE_CHANNEL_INFO_LENGTH
+        ])
+
+    def __len__(self) -> int:
+        return self.header.STRUCTURE_SIZE + self.STRUCTURE_SIZE
+
+
+@dataclass
+@register_smbv2_message
 class WriteRequest(RequestMessage, ABC):
     # TODO: Actual size is 48. Must the buffer contain at least one byte?
     STRUCTURE_SIZE: ClassVar[int] = 49
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_WRITE
+    RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = WriteResponse
+    _DIALECT_TO_CLASS: ClassVar[Dict[Dialect, Type[WriteRequest]]] = {}
 
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_WRITE
-    _dialect_to_class: ClassVar[Dict[Dialect, Type[WriteRequest]]] = {}
-
-    _reserved_channel: ClassVar[bytes] = 4 * b'\x00'
-    _reserved_write_channel_offset: ClassVar[bytes] = 2 * b'\x00'
-    _reserved_write_channel_length: ClassVar[bytes] = 2 * b'\x00'
+    _RESERVED_CHANNEL: ClassVar[bytes] = bytes(4)
+    _RESERVED_WRITE_CHANNEL_OFFSET: ClassVar[bytes] = bytes(2)
+    _RESERVED_WRITE_CHANNEL_LENGTH: ClassVar[bytes] = bytes(2)
 
     write_data: bytes
     offset: int
@@ -35,10 +86,7 @@ class WriteRequest(RequestMessage, ABC):
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> WriteRequest:
         body_bytes: bytes = data[len(header):]
 
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
-        except IncorrectStructureSizeError as e:
-            ...
+        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
 
         data_offset: int = struct_unpack('<H', body_bytes[2:4])[0]
         length: int = struct_unpack('<I', body_bytes[4:8])[0]
@@ -53,19 +101,19 @@ class WriteRequest(RequestMessage, ABC):
         write_data: bytes = data[data_offset:data_offset + length]
 
         if isinstance(header, SMB2XSyncHeader):
-            if channel != cls._reserved_channel:
+            if channel != cls._RESERVED_CHANNEL:
                 # TODO: Use proper exception.
                 raise ValueError
 
-            if write_channel_info_offset_raw != cls._reserved_write_channel_offset:
+            if write_channel_info_offset_raw != cls._RESERVED_WRITE_CHANNEL_OFFSET:
                 # TODO: Use proper exception.
                 raise ValueError
 
-            if write_channel_info_length_raw != cls._reserved_write_channel_length:
+            if write_channel_info_length_raw != cls._RESERVED_WRITE_CHANNEL_LENGTH:
                 # TODO: Use proper exception.
                 raise ValueError
 
-            return cls._dialect_to_class[header.DIALECT](
+            return cls._DIALECT_TO_CLASS[header.DIALECT](
                 write_data=write_data,
                 offset=offset,
                 file_id=file_id,
@@ -76,7 +124,7 @@ class WriteRequest(RequestMessage, ABC):
             write_channel_info_offset: int = struct_unpack('<H', write_channel_info_offset_raw)[0]
             write_channel_info_length: int = struct_unpack('<H', write_channel_info_length_raw)[0]
 
-            return cls._dialect_to_class[header.DIALECT](
+            return cls._DIALECT_TO_CLASS[header.DIALECT](
                 write_data=write_data,
                 offset=offset,
                 file_id=file_id,
@@ -110,7 +158,7 @@ class WriteRequest(RequestMessage, ABC):
             struct_pack('<I', len(self.write_data)),
             struct_pack('<Q', self.offset),
             bytes(self.file_id),
-            channel_bytes if channel_bytes is not None else self._reserved_channel,
+            channel_bytes if channel_bytes is not None else self._RESERVED_CHANNEL,
             struct_pack('<I', self.remaining_bytes),
             struct_pack('<H', write_channel_info_offset),
             struct_pack('<H', write_channel_info_length),
@@ -178,70 +226,10 @@ class WriteRequest311(WriteRequest3X):
     _dialect: ClassVar[Dialect] = Dialect.SMB_3_1_1
 
 
-WriteRequest._dialect_to_class = {
+WriteRequest._DIALECT_TO_CLASS = {
     Dialect.SMB_2_0_2: WriteRequest202,
     Dialect.SMB_2_1: WriteRequest210,
     Dialect.SMB_3_0: WriteRequest300,
     Dialect.SMB_3_0_2: WriteRequest302,
     Dialect.SMB_3_1_1: WriteRequest311
 }
-
-
-@dataclass
-@register_smbv2_message
-class WriteResponse(ResponseMessage):
-
-    STRUCTURE_SIZE: ClassVar[int] = 17
-
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_WRITE
-
-    _reserved: ClassVar[bytes] = bytes(2)
-    _reserved_remaining: ClassVar[bytes] = bytes(4)
-    _reserved_write_channel_info_offset: ClassVar[bytes] = bytes(2)
-    _reserved_write_channel_info_length: ClassVar[bytes] = bytes(2)
-
-    count: int
-
-    @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> WriteResponse:
-        body_bytes: bytes = data[len(header):]
-
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
-        except IncorrectStructureSizeError as e:
-            ...
-
-        reserved_bytes: bytes = body_bytes[2:4]
-        if reserved_bytes != cls._reserved:
-            # TODO: Use proper exception.
-            raise ValueError
-
-        remaining_bytes: bytes = body_bytes[8:12]
-        if remaining_bytes != cls._reserved_remaining:
-            # TODO: Use proper exception.
-            raise ValueError
-
-        write_channel_info_offset_bytes: bytes = body_bytes[12:14]
-        if write_channel_info_offset_bytes != cls._reserved_write_channel_info_offset:
-            # TODO: Use proper exception.
-            raise ValueError
-
-        write_channel_info_length_bytes: bytes = body_bytes[14:16]
-        if write_channel_info_length_bytes != cls._reserved_write_channel_info_length:
-            # TODO: Use proper exception.
-            raise ValueError
-
-        return cls(header=header, count=struct_unpack('<I', body_bytes[4:8])[0])
-
-    def __bytes__(self) -> bytes:
-        return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            self._reserved,
-            struct_pack('<I', self.count),
-            self._reserved_remaining,
-            self._reserved_write_channel_info_offset,
-            self._reserved_write_channel_info_length
-        ])
-
-    def __len__(self) -> int:
-        return self.header.STRUCTURE_SIZE + self.STRUCTURE_SIZE

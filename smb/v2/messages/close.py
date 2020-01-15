@@ -20,55 +20,13 @@ from smb.v2.structures.close_flag_mask import CloseFlag
 
 @dataclass
 @register_smbv2_message
-class CloseRequest(RequestMessage):
-    STRUCTURE_SIZE: ClassVar[int] = 24
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CLOSE
-    _RESERVED: ClassVar[bytes] = 4 * b'\x00'
-
-    flags: CloseFlag
-    file_id: FileId
-
-    @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> CloseRequest:
-        body_data: bytes = data[len(header):]
-
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedCloseRequestError(str(e)) from e
-
-        try:
-            flags = CloseFlag.from_int(struct_unpack('<H', body_data[2:4])[0])
-        except ValueError as e:
-            raise InvalidCloseRequestFlagValueError(str(e)) from e
-
-        reserved = body_data[4:8]
-        if reserved != cls._RESERVED:
-            raise NonEmptyCloseRequestReservedValueError(observed_reserved_value=reserved)
-
-        return cls(header=header, flags=flags, file_id=FileId.from_bytes(data=body_data[8:24]))
-
-    def __len__(self) -> int:
-        return len(self.header) + self.STRUCTURE_SIZE
-
-    def __bytes__(self) -> bytes:
-        return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<H', int(self.flags)),
-            self._RESERVED,
-            bytes(self.file_id)
-        ])
-
-
-@dataclass
-@register_smbv2_message
 class CloseResponse(ResponseMessage):
     flags: CloseFlag
     file_information: Optional[FileInformation] = None
 
     STRUCTURE_SIZE: ClassVar[int] = 60
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CLOSE
-    _reserved: ClassVar[bytes] = 4 * b'\x00'
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CLOSE
+    _RESERVED: ClassVar[bytes] = bytes(4)
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> CloseResponse:
@@ -85,7 +43,7 @@ class CloseResponse(ResponseMessage):
             raise InvalidCloseResponseFlagValueError(str(e)) from e
 
         reserved: bytes = body_data[4:8]
-        if reserved != cls._reserved:
+        if reserved != cls._RESERVED:
             raise NonEmptyCloseResponseReservedValueError(observed_reserved_value=reserved)
 
         creation_time: int = struct_unpack('<Q', body_data[8:16])[0]
@@ -149,10 +107,52 @@ class CloseResponse(ResponseMessage):
         return bytes(self.header) + b''.join([
             struct_pack('<H', self.STRUCTURE_SIZE),
             struct_pack('<H', int(self.flags)),
-            self._reserved,
+            self._RESERVED,
             attributes_chunk
         ])
 
     def __len__(self) -> int:
         return len(self.header) + self.STRUCTURE_SIZE
 
+
+@dataclass
+@register_smbv2_message
+class CloseRequest(RequestMessage):
+    STRUCTURE_SIZE: ClassVar[int] = 24
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CLOSE
+    RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = CloseResponse
+    _RESERVED: ClassVar[bytes] = bytes(4)
+
+    flags: CloseFlag
+    file_id: FileId
+
+    @classmethod
+    def _from_bytes_and_header(cls, data: bytes, header: Header) -> CloseRequest:
+        body_data: bytes = data[len(header):]
+
+        try:
+            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+        except IncorrectStructureSizeError as e:
+            raise MalformedCloseRequestError(str(e)) from e
+
+        try:
+            flags = CloseFlag.from_int(struct_unpack('<H', body_data[2:4])[0])
+        except ValueError as e:
+            raise InvalidCloseRequestFlagValueError(str(e)) from e
+
+        reserved = body_data[4:8]
+        if reserved != cls._RESERVED:
+            raise NonEmptyCloseRequestReservedValueError(observed_reserved_value=reserved)
+
+        return cls(header=header, flags=flags, file_id=FileId.from_bytes(data=body_data[8:24]))
+
+    def __len__(self) -> int:
+        return len(self.header) + self.STRUCTURE_SIZE
+
+    def __bytes__(self) -> bytes:
+        return bytes(self.header) + b''.join([
+            struct_pack('<H', self.STRUCTURE_SIZE),
+            struct_pack('<H', int(self.flags)),
+            self._RESERVED,
+            bytes(self.file_id)
+        ])

@@ -13,7 +13,7 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedLogoffRequestEr
 class LogoffRequest(RequestMessage):
     STRUCTURE_SIZE: ClassVar[int] = 4
     _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_LOGOFF
-    _reserved: ClassVar[int] = 2 * b'\x00'
+    _RESERVED: ClassVar[int] = bytes(2)
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> LogoffRequest:
@@ -28,10 +28,7 @@ class LogoffRequest(RequestMessage):
         return cls(header=header)
 
     def __bytes__(self) -> bytes:
-        return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            self._reserved
-        ])
+        return bytes(self.header) + b''.join([struct_pack('<H', self.STRUCTURE_SIZE), self._RESERVED])
 
     def __len__(self) -> int:
         return len(self.header) + self.STRUCTURE_SIZE
@@ -41,7 +38,7 @@ class LogoffRequest(RequestMessage):
 @register_smbv2_message
 class LogoffResponse(ResponseMessage):
     STRUCTURE_SIZE: ClassVar[int] = 4
-    _reserved: ClassVar[int] = 2 * b'\x00'
+    _RESERVED: ClassVar[int] = 2 * b'\x00'
     _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_LOGOFF
 
     @classmethod
@@ -56,10 +53,7 @@ class LogoffResponse(ResponseMessage):
         return cls(header=header)
 
     def __bytes__(self) -> bytes:
-        return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            self._reserved
-        ])
+        return bytes(self.header) + b''.join([struct_pack('<H', self.STRUCTURE_SIZE), self._RESERVED])
 
     def __len__(self) -> int:
         return len(self.header) + self.STRUCTURE_SIZE

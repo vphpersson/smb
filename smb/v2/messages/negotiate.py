@@ -23,11 +23,11 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateReques
 @dataclass
 @register_smbv2_message
 class NegotiateRequest(ResponseMessage, ABC):
+    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_NEGOTIATE
 
     dialects: Tuple[Dialect, ...]
     security_mode: SecurityMode
     client_guid: UUID
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_NEGOTIATE
 
     @property
     def dialect_count(self) -> int:

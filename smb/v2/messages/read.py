@@ -20,14 +20,14 @@ from smb.v2.structures.read_request_flag import ReadRequestFlag
 @register_smbv2_message
 class ReadRequest(RequestMessage, ABC):
     STRUCTURE_SIZE: ClassVar[int] = 49
-    _reserved_flags_value: ClassVar[bytes] = b'\x00'
-    _reserved_channel_value: ClassVar[bytes] = 4 * b'\x00'
-    _reserved_read_channel_offset: ClassVar[bytes] = 2 * b'\x00'
-    _reserved_read_channel_length: ClassVar[bytes] = 2 * b'\x00'
+    _RESERVED_FLAGS_VALUE: ClassVar[bytes] = bytes(1)
+    _RESERVED_CHANNEL_VALUE: ClassVar[bytes] = bytes(4)
+    _RESERVED_READ_CHANNEL_OFFSET: ClassVar[bytes] = bytes(2)
+    _RESERVED_READ_CHANNEL_LENGTH: ClassVar[bytes] = bytes(2)
 
     _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
-    _dialect_to_class: ClassVar[Dict[Dialect, Type[ReadRequest]]] = {}
-    _dialect: ClassVar[Dialect] = NotImplemented
+    _DIALECT_TO_CLASS: ClassVar[Dict[Dialect, Type[ReadRequest]]] = {}
+    _DIALECT: ClassVar[Dialect] = NotImplemented
 
     padding: int
     length: int
@@ -60,19 +60,19 @@ class ReadRequest(RequestMessage, ABC):
         read_channel_info_length_raw: bytes = body_bytes[46:48]
 
         if header.DIALECT in {Dialect.SMB_2_0_2, Dialect.SMB_2_1}:
-            if flags_raw != cls._reserved_flags_value:
+            if flags_raw != cls._RESERVED_FLAGS_VALUE:
                 raise InvalidReadRequestFlagError
 
-            if channel_raw != cls._reserved_channel_value:
+            if channel_raw != cls._RESERVED_CHANNEL_VALUE:
                 raise InvalidReadRequestChannelError
 
-            if read_channel_info_offset_raw != cls._reserved_read_channel_offset:
+            if read_channel_info_offset_raw != cls._RESERVED_READ_CHANNEL_OFFSET:
                 raise InvalidReadRequestReadChannelInfoOffsetError
 
-            if read_channel_info_length_raw != cls._reserved_read_channel_length:
+            if read_channel_info_length_raw != cls._RESERVED_READ_CHANNEL_LENGTH:
                 raise InvalidReadRequestReadChannelLengthError
 
-            return cls._dialect_to_class[header.DIALECT](header=header, **read_request_base_args)
+            return cls._DIALECT_TO_CLASS[header.DIALECT](header=header, **read_request_base_args)
 
         read_channel_info_offset: int = struct_unpack('<H', read_channel_info_offset_raw)[0]
         read_channel_info_length: int = struct_unpack('<H', read_channel_info_length_raw)[0]
@@ -80,7 +80,7 @@ class ReadRequest(RequestMessage, ABC):
         channel = ReadRequestChannel(struct_unpack('<I', channel_raw)[0])
 
         if header.DIALECT is Dialect.SMB_3_0:
-            if flags_raw != cls._reserved_flags_value:
+            if flags_raw != cls._RESERVED_FLAGS_VALUE:
                 raise InvalidReadRequestFlagError
             return ReadRequest300(
                 header=header,
@@ -95,7 +95,7 @@ class ReadRequest(RequestMessage, ABC):
             raise InvalidReadRequestFlagError from e
 
         if header.DIALECT in {Dialect.SMB_3_0_2, Dialect.SMB_3_1_1}:
-            return cls._dialect_to_class[header.DIALECT](
+            return cls._DIALECT_TO_CLASS[header.DIALECT](
                 header=header,
                 **read_request_base_args,
                 read_channel_buffer=read_channel_buffer,
@@ -138,22 +138,22 @@ class ReadRequest2X(ReadRequest, ABC):
 
     def __bytes__(self) -> bytes:
         return super()._to_bytes(
-            flags_bytes_value=self._reserved_flags_value,
-            channel_bytes_value=self._reserved_channel_value,
-            read_channel_offset_bytes_value=self._reserved_read_channel_offset,
-            read_channel_length_bytes_value=self._reserved_read_channel_length,
+            flags_bytes_value=self._RESERVED_FLAGS_VALUE,
+            channel_bytes_value=self._RESERVED_CHANNEL_VALUE,
+            read_channel_offset_bytes_value=self._RESERVED_READ_CHANNEL_OFFSET,
+            read_channel_length_bytes_value=self._RESERVED_READ_CHANNEL_LENGTH,
             read_channel_buffer=b'\x00'
         )
 
 
 @dataclass
 class ReadRequest202(ReadRequest2X):
-    _dialect: ClassVar[Dialect] = Dialect.SMB_2_0_2
+    _DIALECT: ClassVar[Dialect] = Dialect.SMB_2_0_2
 
 
 @dataclass
 class ReadRequest210(ReadRequest2X):
-    _dialect: ClassVar[Dialect] = Dialect.SMB_2_1
+    _DIALECT: ClassVar[Dialect] = Dialect.SMB_2_1
 
 
 @dataclass
@@ -168,11 +168,11 @@ class ReadRequest3X(ReadRequest, ABC):
 
 @dataclass
 class ReadRequest300(ReadRequest3X):
-    _dialect: ClassVar[Dialect] = Dialect.SMB_3_0
+    _DIALECT: ClassVar[Dialect] = Dialect.SMB_3_0
 
     def __bytes__(self) -> bytes:
         return super()._to_bytes(
-            flags_bytes_value=self._reserved_flags_value,
+            flags_bytes_value=self._RESERVED_FLAGS_VALUE,
             channel_bytes_value=struct_pack('<I', self.channel.value),
             read_channel_offset_bytes_value=struct_pack('<H', self.STRUCTURE_SIZE - 1),
             read_channel_length_bytes_value=struct_pack('<H', len(self.read_channel_buffer)),
@@ -182,7 +182,7 @@ class ReadRequest300(ReadRequest3X):
 
 @dataclass
 class ReadRequest302(ReadRequest3X):
-    _dialect: ClassVar[Dialect] = Dialect.SMB_3_0_2
+    _DIALECT: ClassVar[Dialect] = Dialect.SMB_3_0_2
     flags: ReadRequestFlag
 
     def __bytes__(self) -> bytes:
@@ -197,7 +197,7 @@ class ReadRequest302(ReadRequest3X):
 
 @dataclass
 class ReadRequest311(ReadRequest3X):
-    _dialect: ClassVar[Dialect] = Dialect.SMB_3_1_1
+    _DIALECT: ClassVar[Dialect] = Dialect.SMB_3_1_1
     flags: ReadRequestFlag
 
     def __bytes__(self) -> bytes:
@@ -210,7 +210,7 @@ class ReadRequest311(ReadRequest3X):
         )
 
 
-ReadRequest._dialect_to_class = {
+ReadRequest._DIALECT_TO_CLASS = {
     Dialect.SMB_2_0_2: ReadRequest202,
     Dialect.SMB_2_1: ReadRequest210,
     Dialect.SMB_3_0: ReadRequest300,
@@ -227,8 +227,8 @@ class ReadResponse(ResponseMessage):
 
     STRUCTURE_SIZE: ClassVar[int] = 17
     _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
-    _reserved: ClassVar[bytes] = b'\x00'
-    _reserved_2: ClassVar[bytes] = 4 * b'\x00'
+    _RESERVED: ClassVar[bytes] = bytes(1)
+    _RESERVED_2: ClassVar[bytes] = bytes(4)
 
     @property
     def data_length(self) -> int:
@@ -246,11 +246,11 @@ class ReadResponse(ResponseMessage):
 
         # TODO: The docs says that it should be ignored by the client; use strict mode?
         reserved = body_data[3:4]
-        if reserved != cls._reserved:
+        if reserved != cls._RESERVED:
             raise NonEmptyReadResponseReservedValueError(observed_reserved_value=reserved)
 
         reserved_2 = body_data[12:16]
-        if reserved_2 != cls._reserved_2:
+        if reserved_2 != cls._RESERVED_2:
             raise NonEmptyReadResponseReserved2ValueError(observed_reserved_2_value=reserved_2)
 
         data_offset: int = struct_unpack('<B', body_data[2:3])[0]
@@ -269,10 +269,10 @@ class ReadResponse(ResponseMessage):
         return bytes(self.header) + b''.join([
             struct_pack('<H', self.STRUCTURE_SIZE),
             struct_pack('<B', data_offset),
-            self._reserved,
+            self._RESERVED,
             struct_pack('<I', len(self.buffer)),
             struct_pack('<I', self.data_remaining_length),
-            self._reserved_2,
+            self._RESERVED_2,
             self.buffer
         ])
 

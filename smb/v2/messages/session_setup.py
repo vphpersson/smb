@@ -15,15 +15,15 @@ from smb.v2.structures.session_flag import SessionFlag
 @dataclass
 @register_smbv2_message
 class SessionSetupRequest(RequestMessage):
+    STRUCTURE_SIZE: ClassVar[int] = 25
+    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
+    _RESERVED_CHANNEL: ClassVar[bytes] = bytes(4)
+
     security_mode: SecurityMode
     security_buffer: bytes
     flags: SessionSetupRequestFlag = SessionSetupRequestFlag.SMB2_SESSION_FLAG_NONE
     capabilities: CapabilitiesFlag = CapabilitiesFlag()
-    previous_session_id: bytes = 8 * b'\x00'
-
-    STRUCTURE_SIZE: ClassVar[int] = 25
-    _COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
-    _reserved_channel: ClassVar[bytes] = 4 * b'\x00'
+    previous_session_id: bytes = bytes(8)
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header):
@@ -35,7 +35,7 @@ class SessionSetupRequest(RequestMessage):
         except IncorrectStructureSizeError as e:
             raise MalformedSessionSetupRequestError(str(e)) from e
 
-        if body_data[8:12] != cls._reserved_channel:
+        if body_data[8:12] != cls._RESERVED_CHANNEL:
             # TODO: Use proper exception.
             raise ValueError
 
@@ -60,7 +60,7 @@ class SessionSetupRequest(RequestMessage):
             struct_pack('<B', self.flags.value),
             struct_pack('<B', self.security_mode.value),
             struct_pack('<I', int(self.capabilities)),
-            self._reserved_channel,
+            self._RESERVED_CHANNEL,
             struct_pack('<H', len(self.header) + 24),
             struct_pack('<H', len(self.security_buffer)),
             self.previous_session_id,

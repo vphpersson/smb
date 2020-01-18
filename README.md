@@ -2,7 +2,7 @@
 
 Work in progress!
 
-## Example application
+## Example applications
 
 ### Enumerate files in a share and note the path of each bat script
 
@@ -17,18 +17,18 @@ from sys import stderr
 from msdsalgs.fscc.file_information import FileInformation
 
 from smb.transport import TCPIPTransport
-from smb.v2.connection import Connection
+from smb.v2.connection import Connection as SMBv2Connection
 from smb.v2.session import Session
 from smb.v2.messages.query_directory import FileInformationClass, FileDirectoryInformation, QueryDirectoryFlag
 
 
 async def enumerate_share_files(
-    smb_connection: Connection,
+    smb_connection: SMBv2Connection,
     smb_session: Session,
     tree_id: int,
     root_path: Union[str, PureWindowsPath] = '',
     num_max_concurrent: int = 10,
-    per_file_callback: Optional[Callable[[PureWindowsPath, FileInformation, Connection, Session, int], bool]] = None
+    per_file_callback: Optional[Callable[[PureWindowsPath, FileInformation, SMBv2Connection, Session, int], bool]] = None
 ) -> None:
     """
     Enumerate files in an SMB share.
@@ -118,7 +118,7 @@ async def main():
     share_name = 'Users'
 
     async with TCPIPTransport(address=address, port_number=port_number) as tcp_ip_transport:
-        async with Connection(tcp_ip_transport=tcp_ip_transport) as smb_connection:
+        async with SMBv2Connection(tcp_ip_transport=tcp_ip_transport) as smb_connection:
             await smb_connection.negotiate()
             async with smb_connection.setup_session(username=username, authentication_secret=password) as smb_session:
                 async with smb_connection.tree_connect(share_name=share_name, session=smb_session) as (tree_id, _):
@@ -163,6 +163,88 @@ vph\Downloads\ghidra_9.0.4_PUBLIC_20190516\ghidra_9.0.4\server\ghidraSvr.bat
 vph\Downloads\ghidra_9.0.4_PUBLIC_20190516\ghidra_9.0.4\server\svrAdmin.bat
 vph\Downloads\ghidra_9.0.4_PUBLIC_20190516\ghidra_9.0.4\server\svrInstall.bat
 vph\Downloads\ghidra_9.0.4_PUBLIC_20190516\ghidra_9.0.4\server\svrUninstall.bat
+```
+
+:thumbsup:
+
+### Enumerate shares on a host (with the help of my [rpc](https://github.com/vphpersson/rpc) and [ms_srvs](https://github.com/vphpersson/ms_srvs) libraries!)
+
+```python
+# #!/usr/bin/env python3
+from asyncio import run as asyncio_run
+
+from smb.transport import TCPIPTransport
+from smb.v2.connection import Connection as SMBv2Connection
+from rpc.connection import Connection as RPCConnection
+from rpc.structures.context_list import ContextList, ContextElement
+from ms_srvs import MS_SRVS_ABSTRACT_SYNTAX, MS_SRVS_PIPE_NAME
+from ms_srvs.operations.netr_share_enum import netr_share_enum, NetrShareEnumRequest
+from ms_srvs.structures.share_info_container import ShareInfo1Container
+
+
+async def main():
+    address = '192.168.56.101'
+    port_number = 445
+    username = 'vph'
+    password = 'PASSWORD'
+
+    async with TCPIPTransport(address=address, port_number=port_number) as tcp_ip_transport:
+        async with SMBv2Connection(tcp_ip_transport=tcp_ip_transport) as smb_connection:
+            await smb_connection.negotiate()
+            async with smb_connection.setup_session(username=username, authentication_secret=password) as smb_session:
+                async with smb_connection.make_smbv2_transport(session=smb_session, pipe=MS_SRVS_PIPE_NAME) as (r, w):
+                    async with RPCConnection(reader=r, writer=w) as rpc_connection:
+                        await rpc_connection.bind(
+                            presentation_context_list=ContextList([
+                                ContextElement(context_id=0, abstract_syntax=MS_SRVS_ABSTRACT_SYNTAX)
+                            ])
+                        )
+
+                        share_info_container = (
+                            await netr_share_enum(
+                                rpc_connection=rpc_connection,
+                                request=NetrShareEnumRequest(level=1)
+                            )
+                        ).info_struct.share_info
+
+                        if not isinstance(share_info_container, ShareInfo1Container):
+                            raise ValueError('Bad share info container type.')
+
+                        print(
+                            '\n\n'.join([
+                                f'Name: {entry.netname}\n'
+                                f'Type: {entry.share_type}\n'
+                                f'Remark: {entry.remark}'
+                                for entry in share_info_container.entries
+                            ])
+                        )
+
+
+if __name__ == '__main__':
+    asyncio_run(main())
+```
+
+**Output:**
+```
+Name: ADMIN$
+Type: Disk drive (special)
+Remark: Remote Admin
+
+Name: C$
+Type: Disk drive (special)
+Remark: Default share
+
+Name: cool_share
+Type: Disk drive
+Remark:
+
+Name: IPC$
+Type: Interprocess communication (special)
+Remark: Remote IPC
+
+Name: Users
+Type: Disk drive
+Remark:
 ```
 
 :thumbsup:

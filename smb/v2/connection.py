@@ -229,7 +229,7 @@ class Connection(SMBConnectionBase):
 
         if isinstance(response_message, ErrorResponse):
             if response_message.header.status.real_status is NTStatusValue.STATUS_PENDING and isinstance(response_message.header, AsyncHeader):
-                return await response_message.header.async_response_message_future if await_async_response else response_message
+                return (await response_message.header.async_response_message_future) if await_async_response else response_message
             else:
                 raise NTStatusValueError.from_nt_status(response_message.header.status.real_status)
 
@@ -411,7 +411,7 @@ class Connection(SMBConnectionBase):
                         response_token=bytes(
                             ntlm_context.send(
                                 NTLMChallengeMessage.from_bytes(
-                                    message_bytes=neg_token_resp_1.response_token
+                                    data=neg_token_resp_1.response_token
                                 )
                             )
                         )
@@ -762,9 +762,10 @@ class Connection(SMBConnectionBase):
             raise NotImplementedError
 
         async def read_chunks():
-            data_remains = True
+            num_bytes_remaining = file_size
             offset = 0
-            while data_remains:
+            while num_bytes_remaining != 0:
+                num_bytes_to_read = min(num_bytes_remaining, self.negotiated_details.max_read_size)
                 read_response: ReadResponse = await self._obtain_response(
                     request_message=ReadRequest210(
                         header=SMB210SyncRequestHeader(
@@ -777,7 +778,7 @@ class Connection(SMBConnectionBase):
                             )
                         ),
                         padding=Header.STRUCTURE_SIZE + (ReadResponse.STRUCTURE_SIZE - 1),
-                        length=file_size,
+                        length=num_bytes_to_read,
                         offset=offset,
                         file_id=file_id,
                         minimum_count=0,
@@ -787,8 +788,8 @@ class Connection(SMBConnectionBase):
 
                 yield read_response.buffer
 
-                data_remains = read_response.data_remaining_length != 0
-                offset += read_response.data_length
+                num_bytes_remaining -= num_bytes_to_read
+                offset += num_bytes_to_read
 
         async def merge_read_chunks() -> bytes:
             return b''.join([chunk async for chunk in read_chunks()])

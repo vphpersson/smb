@@ -377,6 +377,9 @@ class Connection(SMBConnectionBase):
             )
         )
 
+        if (nt_status := session_setup_response_1.header.status.real_status) is not NTStatusValue.STATUS_MORE_PROCESSING_REQUIRED:
+            raise NTStatusValueError.from_nt_status(nt_status=nt_status)
+
         # TODO: "The client MUST attempt to locate a session in Connection.SessionTable by using the SessionId in the
         #  SMB2 header"
 
@@ -419,6 +422,9 @@ class Connection(SMBConnectionBase):
                 )
             )
         )
+
+        if (nt_status := session_setup_response_2.header.status.real_status) is not NTStatusValue.STATUS_SUCCESS:
+            raise NTStatusValueError.from_nt_status(nt_status=nt_status)
 
         neg_token_resp_2 = NegTokenResp.from_bytes(data=session_setup_response_2.security_buffer)
         if neg_token_resp_2.neg_state is not NegTokenRespNegState.ACCEPT_COMPLETE:

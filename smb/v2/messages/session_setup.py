@@ -1,11 +1,12 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from struct import unpack as struct_unpack, pack as struct_pack
-from typing import ClassVar
+from typing import ClassVar, Type
 
 from smb.v2.header import Header, SMBv2Command
-from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
-from smb.exceptions import MalformedSessionSetupRequestError, IncorrectStructureSizeError
+from smb.v2.messages import Message, RequestMessage, ResponseMessage
+from smb.exceptions import MalformedSMBv2MessageError, MalformedSessionSetupRequestError, IncorrectStructureSizeError, \
+    MalformedSessionSetupResponseError
 from smb.v2.structures.security_mode import SecurityMode
 from smb.v2.structures.capabilities import CapabilitiesFlag
 from smb.v2.structures.session_setup_request_flag import SessionSetupRequestFlag
@@ -13,19 +14,20 @@ from smb.v2.structures.session_flag import SessionFlag
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class SessionSetupResponse(ResponseMessage):
     session_flags: SessionFlag
     security_buffer: bytes
 
     STRUCTURE_SIZE: ClassVar[int] = 9
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedSessionSetupResponseError
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header):
-        body_data: bytes = data[len(header):]
+        super()._from_bytes_and_header(data=data, header=header)
 
-        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+        body_data: bytes = data[len(header):]
 
         security_buffer_offset: int = struct_unpack('<H', body_data[4:6])[0]
         security_buffer_length: int = struct_unpack('<H', body_data[6:8])[0]
@@ -46,10 +48,11 @@ class SessionSetupResponse(ResponseMessage):
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class SessionSetupRequest(RequestMessage):
     STRUCTURE_SIZE: ClassVar[int] = 25
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_SESSION_SETUP
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedSessionSetupRequestError
     RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = SessionSetupResponse
     _RESERVED_CHANNEL: ClassVar[bytes] = bytes(4)
 
@@ -65,7 +68,7 @@ class SessionSetupRequest(RequestMessage):
         body_data: bytes = data[len(header):]
 
         try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+            cls._check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedSessionSetupRequestError(str(e)) from e
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import ClassVar, Union, Optional
+from typing import ClassVar, Union, Optional, Type
 from struct import pack as struct_pack, unpack as struct_unpack, error as struct_error
 from pathlib import PureWindowsPath
 from math import ceil
@@ -9,7 +9,7 @@ from datetime import datetime
 from msdsalgs.fscc.file_attributes import FileAttributes
 from msdsalgs.time import filetime_to_datetime
 
-from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
+from smb.v2.messages import Message, RequestMessage, ResponseMessage
 from smb.v2.header import Header, SMBv2Command, SMB311SyncRequestHeader, SMB311AsyncHeader
 from smb.exceptions import IncorrectStructureSizeError, MalformedCreateRequestError, \
     NonEmptySecurityFlagsError, NonEmptySmbCreateFlagsError, InvalidCreateDesiredAccessValueError, \
@@ -18,7 +18,7 @@ from smb.exceptions import IncorrectStructureSizeError, MalformedCreateRequestEr
     InvalidCreateOptionsValueError, InvalidCreateShareAccessValueError, NonEmptyCreateReservedError, \
     InvalidCreateNameError, MalformedCreateResponseError, \
     InvalidCreateResponseOplockLevelError, InvalidCreateResponseFlagError, InvalidCreateResponseActionError, \
-    InvalidCreateResponseFileAttributesError
+    InvalidCreateResponseFileAttributesError, MalformedSMBv2MessageError
 from smb.v2.structures.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
 from smb.v2.structures.oplock_level import OplockLevel
 from smb.v2.structures.impersonation_level import ImpersonationLevel
@@ -32,10 +32,12 @@ from smb.v2.structures.file_id import FileId
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class CreateResponse(ResponseMessage):
     STRUCTURE_SIZE: ClassVar[int] = 89
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CREATE
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedCreateResponseError
+    _RESERVED_FLAG_VALUE: ClassVar[int] = 0x00
     _RESERVED_2: ClassVar[bytes] = bytes(4)
 
     oplock_level: OplockLevel
@@ -69,11 +71,12 @@ class CreateResponse(ResponseMessage):
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> CreateResponse:
+        super()._from_bytes_and_header(data=data, header=header)
 
         body_data: bytes = data[len(header):]
 
         try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+            cls._check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedCreateResponseError(str(e)) from e
 
@@ -82,26 +85,33 @@ class CreateResponse(ResponseMessage):
         except ValueError as e:
             raise InvalidCreateResponseOplockLevelError from e
 
-        if isinstance(header, (SMB311SyncRequestHeader, SMB311AsyncHeader)):
-            try:
-                flags = CreateFlag.from_int(body_data[3])
-            except ValueError as e:
-                raise InvalidCreateResponseFlagError from e
-        elif body_data[3] != 0x00:
-            # TODO: Hm.
-            raise InvalidCreateResponseFlagError
-        else:
-            flags = None
-
+        #  "If the server implements the SMB 3.x dialect family, this field MUST be constructed using the following
+        #  value. Otherwise, this field MUST NOT be used and MUST be reserved."
         try:
-            create_action = CreateAction(struct_unpack('<I', body_data[4:8])[0])
+            flags = CreateFlag.from_int(body_data[3]) if body_data[3] != cls._RESERVED_FLAG_VALUE else None
         except ValueError as e:
-            raise InvalidCreateResponseActionError from e
+            raise InvalidCreateResponseFlagError(
+                observed_create_response_flag_value=body_data[3],
+                expected_response_flag_values=[cls._RESERVED_FLAG_VALUE] + list(CreateFlag)
+            ) from e
 
+        raw_create_action_value: int = struct_unpack('<I', body_data[4:8])[0]
         try:
-            file_attributes = FileAttributes.from_int(struct_unpack('<I', body_data[56:60])[0])
+            create_action = CreateAction(raw_create_action_value)
         except ValueError as e:
-            raise InvalidCreateResponseFileAttributesError from e
+            raise InvalidCreateResponseActionError(
+                observed_create_action_value=raw_create_action_value,
+                expected_create_action_values=list(CreateAction)
+            ) from e
+
+        raw_file_attributes_value: int = struct_unpack('<I', body_data[56:60])[0]
+        try:
+            file_attributes = FileAttributes.from_int(value=raw_file_attributes_value)
+        except ValueError as e:
+            raise InvalidCreateResponseFileAttributesError(
+                observed_file_attributes_value=raw_file_attributes_value,
+                expected_file_attribute_values=list(FileAttributes.INT_FLAG_CLASS)
+            ) from e
 
         # Client should ignore value of `Reserved2`?
 
@@ -154,10 +164,11 @@ class CreateResponse(ResponseMessage):
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class CreateRequest(RequestMessage):
     STRUCTURE_SIZE: ClassVar[int] = 57
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_CREATE
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedCreateRequestError
     RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = CreateResponse
     _RESERVED: ClassVar[bytes] = bytes(8)
 
@@ -185,7 +196,7 @@ class CreateRequest(RequestMessage):
         body_data: bytes = data[len(header):]
 
         try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+            cls._check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
         except IncorrectStructureSizeError as e:
             raise MalformedCreateRequestError(str(e)) from e
 

@@ -4,12 +4,12 @@ from typing import ClassVar, Dict, Any, Type
 from struct import pack as struct_pack, unpack as struct_unpack
 from abc import ABC
 
-from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
+from smb.v2.messages import RequestMessage, ResponseMessage, Message
 from smb.v2.header import Header, SMBv2Command
-from smb.exceptions import IncorrectStructureSizeError, MalformedReadRequestError, InvalidReadRequestFlagError,\
+from smb.exceptions import MalformedReadRequestError, InvalidReadRequestFlagError,\
     InvalidReadRequestChannelError, InvalidReadRequestReadChannelInfoOffsetError,\
     InvalidReadRequestReadChannelLengthError, MalformedReadResponseError, \
-    NonEmptyReadResponseReservedValueError, NonEmptyReadResponseReserved2ValueError
+    NonEmptyReadResponseReservedValueError, NonEmptyReadResponseReserved2ValueError, MalformedSMBv2MessageError
 from smb.v2.structures.file_id import FileId
 from smb.v2.structures.dialect import Dialect
 from smb.v2.structures.read_request_channel import ReadRequestChannel
@@ -17,15 +17,16 @@ from smb.v2.structures.read_request_flag import ReadRequestFlag
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class ReadResponse(ResponseMessage):
-    buffer: bytes
-    data_remaining_length: int
-
     STRUCTURE_SIZE: ClassVar[int] = 17
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedReadResponseError
     _RESERVED: ClassVar[bytes] = bytes(1)
     _RESERVED_2: ClassVar[bytes] = bytes(4)
+
+    buffer: bytes
+    data_remaining_length: int
 
     @property
     def data_length(self) -> int:
@@ -33,13 +34,9 @@ class ReadResponse(ResponseMessage):
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> ReadResponse:
+        super()._from_bytes_and_header(data=data, header=header)
 
         body_data = data[len(header):]
-
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedReadResponseError(str(e)) from e
 
         # TODO: The docs says that it should be ignored by the client; use strict mode?
         reserved = body_data[3:4]
@@ -78,10 +75,11 @@ class ReadResponse(ResponseMessage):
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class ReadRequest(RequestMessage, ABC):
     STRUCTURE_SIZE: ClassVar[int] = 49
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_READ
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedReadRequestError
     RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = ReadResponse
     _DIALECT_TO_CLASS: ClassVar[Dict[Dialect, Type[ReadRequest]]] = {}
     _DIALECT: ClassVar[Dialect] = NotImplemented
@@ -100,12 +98,9 @@ class ReadRequest(RequestMessage, ABC):
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> ReadRequest:
-        body_bytes: bytes = data[len(header):]
+        super()._from_bytes_and_header(data=data, header=header)
 
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedReadRequestError(str(e)) from e
+        body_bytes: bytes = data[len(header):]
 
         read_request_base_args: Dict[str, Any] = dict(
             padding=struct_unpack('<B', body_bytes[2:3])[0],

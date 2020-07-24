@@ -4,18 +4,19 @@ from typing import ClassVar, Optional, Dict, Type
 from struct import pack as struct_pack, unpack as struct_unpack
 from abc import ABC
 
-from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
+from smb.v2.messages import Message, RequestMessage, ResponseMessage
 from smb.v2.header import Header, SMBv2Command, SMB2XSyncHeader, SMB3XSyncHeader, Dialect
-from smb.exceptions import IncorrectStructureSizeError
 from smb.v2.structures.file_id import FileId
 from smb.v2.structures.write_flag import WriteFlag
+from smb.exceptions import MalformedSMBv2MessageError, MalformedWriteRequestError, MalformedWriteResponseError
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class WriteResponse(ResponseMessage):
     STRUCTURE_SIZE: ClassVar[int] = 17
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_WRITE
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedWriteResponseError
 
     _RESERVED: ClassVar[bytes] = bytes(2)
     _RESERVED_REMAINING: ClassVar[bytes] = bytes(4)
@@ -26,9 +27,9 @@ class WriteResponse(ResponseMessage):
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> WriteResponse:
-        body_bytes: bytes = data[len(header):]
+        super()._from_bytes_and_header(data=data, header=header)
 
-        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
+        body_bytes: bytes = data[len(header):]
 
         if body_bytes[2:4] != cls._RESERVED:
             # TODO: Use proper exception.
@@ -63,11 +64,12 @@ class WriteResponse(ResponseMessage):
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class WriteRequest(RequestMessage, ABC):
     # TODO: Actual size is 48. Must the buffer contain at least one byte?
     STRUCTURE_SIZE: ClassVar[int] = 49
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_WRITE
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedWriteRequestError
     RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = WriteResponse
     _DIALECT_TO_CLASS: ClassVar[Dict[Dialect, Type[WriteRequest]]] = {}
 
@@ -86,7 +88,7 @@ class WriteRequest(RequestMessage, ABC):
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> WriteRequest:
         body_bytes: bytes = data[len(header):]
 
-        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
+        cls._check_structure_size(structure_size_to_test=struct_unpack('<H', body_bytes[:2])[0])
 
         data_offset: int = struct_unpack('<H', body_bytes[2:4])[0]
         length: int = struct_unpack('<I', body_bytes[4:8])[0]

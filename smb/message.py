@@ -20,8 +20,8 @@ class Message(ABC):
 
         from smb.v1.smbv1_header import SMBv1Header
         from smb.v1.smbv1_message import SMBv1Message
-        from smb.v2.header import Header
-        from smb.v2.messages import Message
+        from smb.v2.header import Header as SMBv2Header
+        from smb.v2.messages import Message as SMBv2Message
 
         version_specific_header_options = version_specific_header_options or {}
 
@@ -29,8 +29,8 @@ class Message(ABC):
 
         if isinstance(smb_header, SMBv1Header):
             return SMBv1Message.from_bytes_and_header(data=data, header=smb_header)
-        elif isinstance(smb_header, Header):
-            return Message.from_bytes_and_header(data=data, header=smb_header)
+        elif isinstance(smb_header, SMBv2Header):
+            return SMBv2Message.from_bytes_and_header(data=data, header=smb_header)
         else:
             # TODO: Use proper exception.
             raise ValueError

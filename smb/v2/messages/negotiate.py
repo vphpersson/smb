@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
-from typing import Tuple, Optional, ClassVar
+from typing import Tuple, Optional, ClassVar, Type
 from abc import ABC
 from struct import unpack as struct_unpack, pack as struct_pack
 from datetime import datetime
@@ -9,19 +9,23 @@ from datetime import datetime
 from msdsalgs.time import filetime_to_datetime
 
 from smb.v2.header import Header, SMBv2Command
-from smb.v2.messages import ResponseMessage, RequestMessage, register_smbv2_message
+from smb.v2.messages import Message, ResponseMessage, RequestMessage
 from smb.v2.structures.dialect import Dialect
 from smb.v2.structures.security_mode import SecurityMode
 from smb.v2.structures.capabilities import CapabilitiesFlag
 from smb.v2.structures.negotiate_context import NegotiateContextList
-from smb.exceptions import IncorrectStructureSizeError, MalformedNegotiateRequestError,\
+from smb.exceptions import MalformedNegotiateRequestError,\
     NoNegotiateDialectsError, NegotiateRequestCapabilitiesNotEmpty, NotImplementedNegotiateRequestError, \
-    MalformedNegotiateResponseError
+    MalformedNegotiateResponseError, MalformedSMBv2MessageError
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class NegotiateResponse(ResponseMessage, ABC):
+    STRUCTURE_SIZE: ClassVar[int] = 65
+    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_NEGOTIATE
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedNegotiateResponseError
+
     dialect_revision: Dialect
     security_mode: SecurityMode
     server_guid: UUID
@@ -33,9 +37,6 @@ class NegotiateResponse(ResponseMessage, ABC):
     _server_start_time: int
     security_buffer: bytes
 
-    STRUCTURE_SIZE: ClassVar[int] = 65
-    COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_NEGOTIATE
-
     @property
     def system_time(self) -> datetime:
         return filetime_to_datetime(filetime=self._system_time)
@@ -46,13 +47,9 @@ class NegotiateResponse(ResponseMessage, ABC):
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> NegotiateResponse:
+        super()._from_bytes_and_header(data=data, header=header)
 
         body_data: bytes = data[len(header):]
-
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedNegotiateResponseError(str(e)) from e
 
         dialect_revision = Dialect(struct_unpack('<H', body_data[4:6])[0])
         security_buffer_offset: int = struct_unpack('<H', body_data[56:58])[0]
@@ -137,11 +134,12 @@ class SMB2WildcardNegotiateResponse(NegotiateResponse):
     pass
 
 
-# TODO: Is this missing `STRUCTURE_SIZE`?
 @dataclass
-@register_smbv2_message
+@Message.register
 class NegotiateRequest(RequestMessage, ABC):
+    STRUCTURE_SIZE: ClassVar[int] = 36
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_NEGOTIATE
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedNegotiateRequestError
     RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = NegotiateResponse
 
     dialects: Tuple[Dialect, ...]
@@ -154,13 +152,9 @@ class NegotiateRequest(RequestMessage, ABC):
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> NegotiateRequest:
+        super()._from_bytes_and_header(data=data, header=header)
 
         body_data: bytes = data[len(header):]
-
-        try:
-            cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedNegotiateRequestError(str(e)) from e
 
         dialect_count: int = struct_unpack('<H', body_data[2:4])[0]
         if dialect_count <= 0:

@@ -5,20 +5,23 @@ from abc import ABC
 from struct import pack as struct_pack, unpack as struct_unpack
 
 from smb.v2.header import Header, SMBv2Command
-from smb.v2.messages import RequestMessage, ResponseMessage, register_smbv2_message
+from smb.v2.messages import Message, RequestMessage, ResponseMessage
 from smb.v2.structures.dialect import Dialect
 from smb.v2.structures.tree_connect_flag import TreeConnectFlag
 from smb.v2.structures.access_mask import FilePipePrinterAccessMask
 from smb.v2.structures.share_type import ShareType
 from smb.v2.structures.share_flag import ShareFlag
 from smb.v2.structures.share_capabilities import ShareCapabilities
+from smb.exceptions import MalformedSMBv2MessageError, MalformedTreeConnectRequestError,\
+    MalformedTreeConnectResponseError
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class TreeConnectResponse(ResponseMessage):
     STRUCTURE_SIZE: ClassVar[int] = 16
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedTreeConnectResponseError
     _RESERVED: ClassVar[bytes] = bytes(1)
 
     share_type: ShareType
@@ -28,10 +31,9 @@ class TreeConnectResponse(ResponseMessage):
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> SMBv2Message:
+        super()._from_bytes_and_header(data=data, header=header)
 
         body_data: bytes = data[len(header):]
-
-        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
 
         if body_data[3:4] != cls._RESERVED:
             # TODO: Raise proper exception.
@@ -60,20 +62,20 @@ class TreeConnectResponse(ResponseMessage):
 
 
 @dataclass
-@register_smbv2_message
+@Message.register
 class TreeConnectRequest(RequestMessage, ABC):
     STRUCTURE_SIZE: ClassVar[int] = 9
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_TREE_CONNECT
     RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = TreeConnectResponse
+    MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedTreeConnectRequestError
     _DIALECT_TO_CLASS: ClassVar[Dialect, Type[TreeConnectRequest]] = {}
     _DIALECT: ClassVar[Dialect] = NotImplemented
 
     @classmethod
     def _from_bytes_and_header(cls, data: bytes, header: Header) -> TreeConnectRequest:
+        super()._from_bytes_and_header(data=data, header=header)
 
         body_data: bytes = data[len(header):]
-
-        cls.check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
 
         path_offset: int = struct_unpack('<H', body_data[4:6])[0]
         path_length: int = struct_unpack('<H', body_data[6:8])[0]

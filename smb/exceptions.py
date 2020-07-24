@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Iterable
 
 
 class NotImplementedSMBMessageError(NotImplementedError):
@@ -14,8 +14,21 @@ class NotImplementedNegotiateRequestError(NotImplementedSMBv2MessageError):
 
 
 class MalformedSMBMessageError(Exception):
-    def __init__(self, msg: str):
-        super().__init__(msg)
+    def __init__(
+        self,
+        message_header: str,
+        observed_value: Any,
+        expected_value: Any,
+        expected_label: str = 'Expected'
+    ):
+        super().__init__(
+            f'{message_header} '
+            f'Observed {observed_value}. '
+            f'{expected_label} {expected_value}.'
+        )
+
+        self.observed_value: Any = observed_value
+        self.expected_value: Any = expected_value
 
 
 class MalformedSMBv2MessageError(MalformedSMBMessageError):
@@ -23,10 +36,12 @@ class MalformedSMBv2MessageError(MalformedSMBMessageError):
 
 
 class IncorrectStructureSizeError(MalformedSMBMessageError):
-    def __init__(self, observed_structure_size: Any, expected_structure_size: int):
-        super().__init__(f'Expected structure size {expected_structure_size}, observed {observed_structure_size}.')
-        self.observed_STRUCTURE_SIZE: Any = observed_structure_size
-        self.expected_STRUCTURE_SIZE: int = expected_structure_size
+    def __init__(self, observed_structure_size: int, expected_structure_size: int):
+        super().__init__(
+            message_header='Incorrect structure size.',
+            observed_value=observed_structure_size,
+            expected_value=expected_structure_size
+        )
 
 
 class MalformedNegotiateRequestError(MalformedSMBv2MessageError):
@@ -35,14 +50,20 @@ class MalformedNegotiateRequestError(MalformedSMBv2MessageError):
 
 class NoNegotiateDialectsError(MalformedNegotiateRequestError):
     def __init__(self, observed_dialect_count: Any):
-        super().__init__(f'The number of dialects specified is {observed_dialect_count}. Should be a positive integer.')
-        self.observed_dialect_count = observed_dialect_count
+        super().__init__(
+            message_header='Incorrect number of dialects specified.',
+            observed_value=observed_dialect_count,
+            expected_value='a positive integer'
+        )
 
 
 class NegotiateRequestCapabilitiesNotEmpty(MalformedNegotiateRequestError):
     def __init__(self, observed_capabilities_value: bytes):
-        super().__init__(f'Expected empty capabilities, observed {observed_capabilities_value}.')
-        self.observed_capabilities_value = observed_capabilities_value
+        super().__init__(
+            message_header='Bad observed capabilities value.',
+            observed_value=observed_capabilities_value,
+            expected_value='empty capabilities'
+        )
 
 
 class MalformedNegotiateResponseError(MalformedSMBv2MessageError):
@@ -50,6 +71,10 @@ class MalformedNegotiateResponseError(MalformedSMBv2MessageError):
 
 
 class MalformedSessionSetupRequestError(MalformedSMBv2MessageError):
+    pass
+
+
+class MalformedSessionSetupResponseError(MalformedSMBv2MessageError):
     pass
 
 
@@ -126,15 +151,33 @@ class InvalidCreateResponseOplockLevelError(MalformedCreateResponseError):
 
 
 class InvalidCreateResponseFlagError(MalformedCreateResponseError):
-    pass
+    def __init__(self, observed_create_response_flag_value: int, expected_response_flag_values: Iterable[int]):
+        super().__init__(
+            message_header='Bad create response flag value.',
+            observed_value=observed_create_response_flag_value,
+            expected_value=expected_response_flag_values,
+            expected_label='Expected any of'
+        )
 
 
 class InvalidCreateResponseActionError(MalformedCreateResponseError):
-    pass
+    def __init__(self, observed_create_action_value: int, expected_create_action_values: Iterable[int]):
+        super().__init__(
+            message_header='Bad create action value.',
+            observed_value=observed_create_action_value,
+            expected_value=expected_create_action_values,
+            expected_label='Expected any of'
+        )
 
 
 class InvalidCreateResponseFileAttributesError(MalformedCreateResponseError):
-    pass
+    def __init__(self, observed_file_attributes_value: int, expected_file_attribute_values: Iterable[int]):
+        super().__init__(
+            message_header='Bad file attributes value.',
+            observed_value=observed_file_attributes_value,
+            expected_value=expected_file_attribute_values,
+            expected_label='Expected a combination of'
+        )
 
 
 class MalformedReadRequestError(MalformedSMBv2MessageError):
@@ -233,6 +276,14 @@ class NonEmptyCloseResponseFileAttributesValueError(MalformedCloseResponseError)
     pass
 
 
+class MalformedTreeConnectResponseError(MalformedSMBv2MessageError):
+    pass
+
+
+class MalformedTreeConnectRequestError(MalformedSMBv2MessageError):
+    pass
+
+
 class MalformedTreeDisconnectRequestError(MalformedSMBv2MessageError):
     pass
 
@@ -260,4 +311,20 @@ class InvalidQueryDirectoryFileIndexValueError(MalformedQueryDirectoryRequestErr
 
 
 class MalformedQueryDirectoryResponseError(MalformedSMBv2MessageError):
+    pass
+
+
+class MalformedWriteRequestError(MalformedSMBv2MessageError):
+    pass
+
+
+class MalformedWriteResponseError(MalformedSMBv2MessageError):
+    pass
+
+
+class MalformedChangeNotifyRequestError(MalformedSMBv2MessageError):
+    pass
+
+
+class MalformedChangeNotifyResponseError(MalformedSMBv2MessageError):
     pass

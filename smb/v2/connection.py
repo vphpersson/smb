@@ -1,44 +1,29 @@
 from __future__ import annotations
-from uuid import UUID, uuid1
-from typing import Dict, Optional, Tuple, Awaitable, Union, AsyncGenerator, AsyncContextManager, List, Any, \
-    Final, NoReturn
+from uuid import UUID, uuid4
+from typing import Dict, Optional, Tuple, Awaitable, Union, Final, NoReturn
 from asyncio import Future, create_task
 from ipaddress import IPv4Address, IPv6Address
-from enum import Enum, auto
 from contextlib import asynccontextmanager
-from pathlib import PureWindowsPath
 from functools import partial
 from logging import getLogger
+from hmac import digest as hmac_digest
 
+from ntlm import NTLMContext
 from ntlm.messages.challenge import ChallengeMessage as NTLMChallengeMessage
-from ntlm.utils import make_ntlm_context
 from spnego.negotiation_tokens.neg_token_init import NegTokenInit
 from spnego.negotiation_tokens.neg_token_resp import NegTokenResp
 from spnego.token_attributes import NegTokenRespNegState
 from asn1.oid import OID
-from msdsalgs.fscc.file_information_classes import FileDirectoryInformation, FileIdFullDirectoryInformation
+from asn1.universal_types import SequenceOf, ObjectIdentifier
 from msdsalgs.ntstatus_value import NTStatusValue, NTStatusValueError
 
-from smb.connection import Connection as SMBConnectionBase
 from smb.transport import Transport, TCPIPTransport
+from smb.connection import Connection as SMBConnectionBase
 from smb.v2.header import Header, SMBv2Command, AsyncHeader, SMB210SyncRequestHeader
-from smb.v2.client_parameters import PREFERRED_DIALECT, CLIENT_GUID, SECURITY_MODE, REQUIRE_MESSAGE_SIGNING
 from smb.v2.session import SMB210Session
-from smb.v2.messages import Message, RequestMessage, ResponseMessage, calculate_credit_charge
+from smb.v2.messages import Message, RequestMessage, ResponseMessage
 from smb.v2.messages.negotiate import NegotiateRequest, NegotiateResponse
 from smb.v2.messages.session_setup import SessionSetupRequest, SessionSetupResponse
-from smb.v2.messages.tree_connect import TreeConnectRequest210, TreeConnectResponse, ShareType
-from smb.v2.messages.create import CreateRequest, CreateResponse, OplockLevel, ImpersonationLevel, FileAttributes,\
-    ShareAccess, CreateDisposition, CreateOptions
-from smb.v2.messages.query_directory import QueryDirectoryRequest, QueryDirectoryResponse, FileInformationClass, \
-    QueryDirectoryFlag
-from smb.v2.messages.read import ReadRequest210, ReadResponse
-from smb.v2.messages.write import WriteRequest210, WriteResponse, WriteFlag
-from smb.v2.messages.change_notify import ChangeNotifyRequest, ChangeNotifyResponse, CompletionFilterFlag, \
-    ChangeNotifyFlag
-from smb.v2.messages.close import CloseRequest, CloseResponse, CloseFlag
-from smb.v2.messages.tree_disconnect import TreeDisconnectRequest, TreeDisconnectResponse
-from smb.v2.messages.logoff import LogoffRequest, LogoffResponse
 # TODO: Reconsider whether this is necessary.
 from smb.v2.messages.negotiate import SMB202NegotiateResponse, \
     SMB210NegotiateResponse, SMB300NegotiateResponse, SMB302NegotiateResponse, SMB311NegotiateResponse
@@ -47,30 +32,24 @@ from smb.v2.structures.dialect import Dialect
 from smb.v2.structures.negotiate_context import PreauthIntegrityCapabilitiesContext, EncryptionCapabilitiesContext, \
     CompressionCapabilitiesContext, NetnameNegotiateContextIdContext
 from smb.v2.structures.security_mode import SecurityMode
-from smb.v2.structures.tree_connect_object import TreeConnectObject
-from smb.v2.structures.create_context import CreateContextList
-from smb.v2.structures.access_mask import FilePipePrinterAccessMask, DirectoryAccessMask
-from smb.v2.structures.file_id import FileId
 from smb.v2.structures.negotiated_details import SMBv2NegotiatedDetails, SMB202NegotiatedDetails, \
     SMB210NegotiatedDetails, SMB300NegotiatedDetails, SMB302NegotiatedDetails, SMB311NegotiateDetails
+from smb.v2.structures.sequence_window import SequenceWindow
+from smb.v2.structures.session_state import SessionState
+from smb.exceptions import CreditsNotAvailable
+
 
 LOG = getLogger(__name__)
 
 
-class CreditsNotAvailable(Exception):
-    def __init__(self, num_requested_credits: int):
-        super().__init__(f'The request for {num_requested_credits} could not be fulfilled.')
-        self.num_requested_credits = num_requested_credits
-
-
-class SessionSetupAuthenticationMethod(Enum):
-    LM_NTLM_v1 = auto()
-    LM_NTLM_v2 = auto()
-
-
 class Connection(SMBConnectionBase):
 
-    def __init__(self, tcp_ip_transport: TCPIPTransport):
+    def __init__(self, tcp_ip_transport: TCPIPTransport, client_guid: UUID = uuid4()):
+        """
+
+        :param tcp_ip_transport:
+        :param client_guid:
+        """
 
         from smb.v2.session import Session
 
@@ -79,29 +58,24 @@ class Connection(SMBConnectionBase):
             reader=partial(tcp_ip_transport.reader.read, tcp_ip_transport.read_size),
             writer=tcp_ip_transport.write
         )
-        self._host_address: Final[Union[IPv4Address, IPv6Address, str]] = tcp_ip_transport.address
 
-        # TODO: Not sure which UUID function to use.
-        self._client_guid: UUID = uuid1()
-        # TODO: How to get this?
-        self._server_name: Optional[str] = None
+        self._client_guid: UUID = client_guid
+        self._server_name: Final[str] = str(tcp_ip_transport.address)
+
         self.negotiated_details: Optional[SMBv2NegotiatedDetails] = None
         # TODO: "The table MUST allow lookup by both Session.SessionId and by the security context of the user that
         #  established the connection."
         # A.k.a. SessionTable, with SessionId lookup.
         self._session_id_to_session: Dict[bytes, Session] = {}
         # A.k.a. PreauthSessionTable
-        self._session_id_to_unauthenticated_session: Dict[bytes, Session] = {}
+        # (Derive it from `SessionTable` instead of making a new variable.)
         # A.k.a. OutstandingRequests, with MessageId lookup
         self._outstanding_request_message_id_to_smb_message_request: Dict[int, Message] = {}
         # A.k.a. OutstandingRequests, with CancelId lookup
         self._outstanding_request_cancel_id_to_smb_message_request: Dict[bytes, Message] = {}
         # TODO: What is this?
         self._gss_negotiate_token: Optional[bytes] = None
-
-        # A.k.a. SequenceWindow
-        self._sequence_window_lower: int = 0
-        self._sequence_window_upper: int = 1
+        self._sequence_window = SequenceWindow()
 
         # Custom
 
@@ -114,7 +88,7 @@ class Connection(SMBConnectionBase):
         return self._client_guid
 
     @property
-    def server_name(self) -> Optional[str]:
+    def server_name(self) -> str:
         return self._server_name
 
     def _transport_from_bytes(self, data: bytes) -> Transport:
@@ -141,12 +115,12 @@ class Connection(SMBConnectionBase):
         :return: A sequence of `MessageId`s fulfilling the request.
         """
 
-        message_id = self._sequence_window_lower
+        message_id = self._sequence_window.lower
 
-        next_message_id: int = self._sequence_window_lower + credit_charge
-        if next_message_id > self._sequence_window_upper:
+        next_message_id: int = self._sequence_window.lower + credit_charge
+        if next_message_id > self._sequence_window.upper:
             raise CreditsNotAvailable(num_requested_credits=credit_charge)
-        self._sequence_window_lower = next_message_id
+        self._sequence_window.lower = next_message_id
 
         return message_id
 
@@ -163,12 +137,39 @@ class Connection(SMBConnectionBase):
             credit_charge=getattr(request_message.header, 'credit_charge', 1)
         )
 
+    def _write_signature(self, request_message: Message, sign_key: bytes) -> None:
+        """
+        Write a signature to a request message.
+
+        See also:
+
+        [MS-SMB2]: Signing An Outgoing Message | Microsoft Docs
+        https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/a3e9ea1e-53c8-4cff-94bd-d98fb20417c0
+
+        :param request_message: The message to be signed.
+        :param sign_key: The key to be used in the signing.
+        :return: None
+        """
+
+        if self.negotiated_details.dialect in {Dialect.SMB_2_0_2, Dialect.SMB_2_1}:
+            request_message.header.flags.signed = True
+            request_message.header.signature = hmac_digest(
+                key=sign_key,
+                msg=bytes(request_message),
+                digest='sha256'
+            )[:16]
+        elif self.negotiated_details.dialect in {Dialect.SMB_3_0, Dialect.SMB_3_0_2, Dialect.SMB_3_0_2}:
+            raise NotImplementedError
+        else:
+            # TODO: Use proper exception.
+            raise ValueError
+
     async def _receive_message(self) -> NoReturn:
         try:
             while True:
                 incoming_message: Message = await self._incoming_smb_messages_queue.get()
 
-                self._sequence_window_upper += incoming_message.header.num_credits
+                self._sequence_window.upper += incoming_message.header.num_credits
 
                 if isinstance(incoming_message.header, AsyncHeader):
                     async_key = incoming_message.header.async_key
@@ -195,7 +196,7 @@ class Connection(SMBConnectionBase):
         except Exception as e:
             LOG.exception(e)
 
-    async def _send_message(self, request_message: Message) -> Awaitable[Message]:
+    async def _send_message(self, request_message: Message, sign_key: Optional[bytes] = None) -> Awaitable[Message]:
         """
         Assign an available message id to a request message and then put the message in the outgoing messages queue.
 
@@ -210,6 +211,9 @@ class Connection(SMBConnectionBase):
 
         await self._assign_message_id(request_message=request_message)
 
+        if sign_key is not None:
+            self._write_signature(request_message=request_message, sign_key=sign_key)
+
         self._outstanding_request_message_id_to_smb_message_request[request_message.header.message_id] = request_message
         # self._cancel_id_to_smb_message_request[...] = request_message
 
@@ -220,8 +224,21 @@ class Connection(SMBConnectionBase):
 
         return response_message_future
 
-    async def _obtain_response(self, request_message: RequestMessage, await_async_response: bool = True):
-        response_message: Message = await (await self._send_message(request_message=request_message))
+    async def _obtain_response(
+        self,
+        request_message: RequestMessage,
+        await_async_response: bool = True,
+        sign_key: Optional[bytes] = None
+    ):
+        """
+
+        :param request_message:
+        :param await_async_response:
+        :param sign_key:
+        :return:
+        """
+
+        response_message: Message = await (await self._send_message(request_message=request_message, sign_key=sign_key))
 
         if not isinstance(response_message, ResponseMessage):
             # TODO: Raise proper exception.
@@ -239,9 +256,13 @@ class Connection(SMBConnectionBase):
 
         return response_message
 
-    async def negotiate(self) -> None:
+    async def negotiate(
+        self,
+        preferred_dialect: Dialect = Dialect.SMB_2_1,
+        security_mode: SecurityMode = SecurityMode(signing_required=True)
+    ) -> None:
         """
-        Negotiate the SMB dialect to be used.
+        Negotiate the SMB configuration to be used.
 
         :return: None
         """
@@ -252,18 +273,17 @@ class Connection(SMBConnectionBase):
                 header=SMB210SyncRequestHeader(
                     command=SMBv2Command.SMB2_NEGOTIATE
                 ),
-                dialects=(PREFERRED_DIALECT,),
-                client_guid=CLIENT_GUID,
-                security_mode=SECURITY_MODE
+                dialects=(preferred_dialect,),
+                client_guid=self.client_guid,
+                security_mode=security_mode
             )
         )
 
+        # TODO: Check if the server is also accepting signing?
+
         negotiated_details_base_kwargs = dict(
             dialect=negotiate_response.dialect_revision,
-            require_signing=(
-                bool(negotiate_response.security_mode is SecurityMode.SMB2_NEGOTIATE_SIGNING_REQUIRED)
-                or REQUIRE_MESSAGE_SIGNING
-            ),
+            require_signing=negotiate_response.security_mode.signing_required,
             server_guid=negotiate_response.server_guid,
             max_transact_size=negotiate_response.max_transact_size,
             max_read_size=negotiate_response.max_read_size,
@@ -335,28 +355,25 @@ class Connection(SMBConnectionBase):
             # TODO: Use proper exception.
             raise ValueError
 
-    # TODO: Figure out what "WORKSTATION" means.
     # TODO: I think it is possible to setup anonymous sessions.
     async def _setup_session(
         self,
         username: str,
         authentication_secret: Union[str, bytes],
-        domain_name: str = 'WORKSTATION',
-        workstation_name: Optional[Union[str, IPv4Address, IPv6Address]] = None,
-        authentication_method: SessionSetupAuthenticationMethod = SessionSetupAuthenticationMethod.LM_NTLM_v2
-    ) -> SMBSession:
-        if authentication_method in {SessionSetupAuthenticationMethod.LM_NTLM_v1, SessionSetupAuthenticationMethod.LM_NTLM_v2}:
-            # TODO: Let this reference a constant defined somewhere?
-            mech_type: OID = OID.from_string(string='1.3.6.1.4.1.311.2.2.10')
-            ntlm_context = make_ntlm_context(
-                username=username,
-                authentication_secret=authentication_secret,
-                domain_name=domain_name,
-                workstation_name=workstation_name,
-                lm_compatibility_level=3 if authentication_method is SessionSetupAuthenticationMethod.LM_NTLM_v2 else 1
-            )
-        else:
-            raise NotImplementedError
+        domain_name: str = '',
+        workstation_name: str = ''
+    ):
+
+        # TODO: Let this reference a constant defined somewhere? (spnego)
+        mech_type: OID = OID.from_string(string='1.3.6.1.4.1.311.2.2.10')
+        ntlm_context = NTLMContext(
+            username=username,
+            authentication_secret=authentication_secret,
+            domain_name=domain_name,
+            workstation_name=workstation_name
+        )
+
+        ntlm_context_authenticate = ntlm_context.initiate()
 
         session_setup_response_1: SessionSetupResponse = await self._obtain_response(
             request_message=SessionSetupRequest(
@@ -366,12 +383,17 @@ class Connection(SMBConnectionBase):
                     is_response=False,
                     command=SMBv2Command.SMB2_SESSION_SETUP
                 ),
-                security_mode=SECURITY_MODE,
+                security_mode=(
+                    SecurityMode(
+                        signing_required=self.negotiated_details.require_signing,
+                        signing_enabled=not self.negotiated_details.require_signing
+                    )
+                ),
                 security_buffer=bytes(
                     NegTokenInit(
                         mech_types=[mech_type],
                         # A serialized NTLM Negotiate message.
-                        mech_token=bytes(next(ntlm_context))
+                        mech_token=bytes(next(ntlm_context_authenticate))
                     )
                 )
             )
@@ -392,10 +414,19 @@ class Connection(SMBConnectionBase):
             # TODO: Use proper exception.
             raise ValueError
 
+        response_token = bytes(
+            ntlm_context_authenticate.send(
+                NTLMChallengeMessage.from_bytes(
+                    neg_token_resp_1.response_token
+                )
+            )
+        )
+
         smb_session = SMB210Session.from_dialect(
             dialect=self.negotiated_details.dialect,
             session_id=session_setup_response_1.header.session_id,
-            connection=self
+            connection=self,
+            session_key=ntlm_context.exported_session_key
         )
 
         session_setup_response_2: SessionSetupResponse = await self._obtain_response(
@@ -407,16 +438,20 @@ class Connection(SMBConnectionBase):
                     command=SMBv2Command.SMB2_SESSION_SETUP,
                     session_id=smb_session.session_id
                 ),
-                security_mode=SECURITY_MODE,
+                security_mode=SecurityMode(
+                    signing_required=self.negotiated_details.require_signing,
+                    signing_enabled=not self.negotiated_details.require_signing
+                ),
                 security_buffer=bytes(
                     NegTokenResp(
-                        # A serialized NTLM Authenticate message.
-                        response_token=bytes(
-                            ntlm_context.send(
-                                NTLMChallengeMessage.from_bytes(
-                                    data=neg_token_resp_1.response_token
+                        response_token=response_token,
+                        mech_list_mic=ntlm_context.sign(
+                            data=bytes(
+                                SequenceOf(
+                                    elements=tuple(ObjectIdentifier(oid=oid).tlv_triplet() for oid in [mech_type])
                                 )
-                            )
+                            ),
+                            as_bytes=True
                         )
                     )
                 )
@@ -433,34 +468,18 @@ class Connection(SMBConnectionBase):
 
         # TODO: Add session to connection table?
 
+        smb_session.state = SessionState.VALID
+
         return smb_session
-
-    async def logoff(self, session: SMBv2Session) -> None:
-        """
-        Terminate a session.
-
-        :param session: The session to be terminated.
-        :return: None
-        """
-
-        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
-            raise NotImplementedError
-
-        await self._obtain_response(
-            request_message=LogoffRequest(
-                header=SMB210SyncRequestHeader(command=SMBv2Command.SMB2_LOGOFF, session_id=session.session_id)
-            )
-        )
 
     @asynccontextmanager
     async def setup_session(
         self,
         username: str,
         authentication_secret: Union[str, bytes],
-        domain_name: str = 'WORKSTATION',
-        workstation_name: Optional[Union[str, IPv4Address, IPv6Address]] = None,
-        authentication_method: SessionSetupAuthenticationMethod = SessionSetupAuthenticationMethod.LM_NTLM_v2
-    ) -> SMBv2Session:
+        domain_name: str = '',
+        workstation_name: str = ''
+    ):
         """
         Request a new authenticated SMB session and log off it once consumed.
 
@@ -468,535 +487,18 @@ class Connection(SMBConnectionBase):
         :param authentication_secret: The password or NT hash of the user which to authenticate, differentiated by type.
         :param domain_name: The name of the domain to which the user belongs.
         :param workstation_name: The name of the client workstation.
-        :param authentication_method: The authentication method to be used.
         :return: An authenticated SMB session.
         """
 
-        session: SMBv2Session = await self._setup_session(
+        async with await self._setup_session(
             username=username,
             authentication_secret=authentication_secret,
             domain_name=domain_name,
             workstation_name=workstation_name,
-            authentication_method=authentication_method
-        )
+        ) as session:
+            yield session
 
-        yield session
-        await self.logoff(session=session)
 
-    async def _tree_connect(
-        self,
-        share_name: str,
-        session: SMBv2Session,
-        server_address: Optional[Union[str, IPv4Address, IPv6Address]] = None
-    ) -> Tuple[int, ShareType]:
 
-        # TODO: "If ServerName is an empty string, the server MUST set it as "*" to indicate that the local server name
-        #  used." -- Does this mean that I don't need a server address!?
 
-        tree_connect_response: TreeConnectResponse = await self._obtain_response(
-            request_message=TreeConnectRequest210(
-                header=SMB210SyncRequestHeader(
-                    command=SMBv2Command.SMB2_TREE_CONNECT,
-                    session_id=session.session_id,
-                ),
-                path=f'\\\\{server_address or self._host_address}\\{share_name}'
-            )
-        )
-
-        tree_connect_object = TreeConnectObject(
-            tree_connect_id=tree_connect_response.header.tree_id,
-            session=session,
-            is_dfs_share=tree_connect_response.share_capabilities.dfs,
-            is_ca_share=tree_connect_response.share_capabilities.continuous_availability,
-            share_name=share_name
-        )
-
-        session.tree_connect_id_to_tree_connect_object[tree_connect_response.header.tree_id] = tree_connect_object
-        session.share_name_to_tree_connect_object[share_name] = tree_connect_object
-
-        return tree_connect_response.header.tree_id, tree_connect_response.share_type
-
-    async def tree_disconnect(self, session: SMBv2Session, tree_id: int):
-        """
-        Request that a tree connect is disconnected.
-
-        :param session: An SMB session that has access to the tree connect.
-        :param tree_id: The ID of the tree connect to be disconnected.
-        :return: None
-        """
-
-        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
-            raise NotImplementedError
-
-        await self._obtain_response(
-            request_message=TreeDisconnectRequest(
-                header=SMB210SyncRequestHeader(
-                    command=SMBv2Command.SMB2_TREE_DISCONNECT,
-                    session_id=session.session_id,
-                    tree_id=tree_id
-                )
-            )
-        )
-
-    @asynccontextmanager
-    async def tree_connect(
-        self,
-        share_name: str,
-        session: SMBv2Session,
-        server_address: Optional[Union[str, IPv4Address, IPv6Address]] = None
-    ) -> AsyncContextManager[Tuple[int, ShareType]]:
-        """
-        Obtain access to a particular share on a remote server and disconnect once finished with it.
-
-        :param share_name: The name of the share to obtain access to.
-        :param session: An SMB session with which to access the share.
-        :param server_address: The address of the server on which the share exists.
-        :return: The tree id and share type of the SMB share accessed.
-        """
-
-        tree_id, share_type = await self._tree_connect(
-            share_name=share_name,
-            session=session,
-            server_address=server_address
-        )
-        yield tree_id, share_type
-
-        await self.tree_disconnect(session=session, tree_id=tree_id)
-
-    async def _create(
-        self,
-        path: Union[str, PureWindowsPath],
-        session: SMBv2Session,
-        tree_id: int,
-        requested_oplock_level: OplockLevel = OplockLevel.SMB2_OPLOCK_LEVEL_BATCH,
-        impersonation_level: ImpersonationLevel = ImpersonationLevel.IMPERSONATION,
-        desired_access: Union[FilePipePrinterAccessMask, DirectoryAccessMask] = FilePipePrinterAccessMask(
-            file_read_data=True,
-            file_read_ea=True,
-            file_read_attributes=True
-        ),
-        file_attributes: FileAttributes = FileAttributes(normal=True),
-        share_access: ShareAccess = ShareAccess(read=True),
-        create_disposition: CreateDisposition = CreateDisposition.FILE_OPEN,
-        create_options: CreateOptions = CreateOptions(non_directory_file=True),
-        create_context_list: CreateContextList = None
-    ) -> CreateResponse:
-        create_context_list = create_context_list if create_context_list is not None else CreateContextList()
-
-        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
-            raise NotImplementedError
-
-        create_response: CreateResponse = await self._obtain_response(
-            request_message=CreateRequest(
-                header=SMB210SyncRequestHeader(
-                    command=SMBv2Command.SMB2_CREATE,
-                    session_id=session.session_id,
-                    tree_id=tree_id,
-                ),
-                requested_oplock_level=requested_oplock_level,
-                impersonation_level=impersonation_level,
-                desired_access=desired_access,
-                file_attributes=file_attributes,
-                share_access=share_access,
-                create_disposition=create_disposition,
-                create_options=create_options,
-                name=str(path),
-                create_context_list=create_context_list
-            )
-        )
-
-        # TODO: I need to add stuff to some connection table, don't I?
-        # TODO: Consider what to return from this function. There is a lot of information in the response.
-        return create_response
-
-    async def close(self, session: SMBv2Session, tree_id: int, file_id: FileId) -> None:
-        """
-        Close an instance of a file opened with a CREATE request.
-
-        :param session: The SMB session with which to close the file instance.
-        :param tree_id: The tree id of the share in which the opened file resides.
-        :param file_id: The file id of the file instance to be closed.
-        :return: None
-        """
-
-        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
-            raise NotImplementedError
-
-        await self._obtain_response(
-            request_message=CloseRequest(
-                header=SMB210SyncRequestHeader(
-                    command=SMBv2Command.SMB2_CLOSE,
-                    session_id=session.session_id,
-                    tree_id=tree_id
-                ),
-                flags=CloseFlag(),
-                file_id=file_id
-            )
-        )
-
-    @asynccontextmanager
-    async def create(
-        self,
-        path: Union[str, PureWindowsPath],
-        session: SMBv2Session,
-        tree_id: int,
-        requested_oplock_level: OplockLevel = OplockLevel.SMB2_OPLOCK_LEVEL_BATCH,
-        impersonation_level: ImpersonationLevel = ImpersonationLevel.IMPERSONATION,
-        desired_access: Union[FilePipePrinterAccessMask, DirectoryAccessMask] = FilePipePrinterAccessMask(
-            file_read_data=True,
-            file_read_attributes=True
-        ),
-        file_attributes: FileAttributes = FileAttributes(normal=True),
-        share_access: ShareAccess = ShareAccess(read=True),
-        create_disposition: CreateDisposition = CreateDisposition.FILE_OPEN,
-        create_options: CreateOptions = CreateOptions(non_directory_file=True),
-        create_context_list: CreateContextList = None
-    ) -> AsyncContextManager[CreateResponse]:
-        """
-        Create/open a file or directory in an SMB share and close it once finished with it.
-
-        The default parameters reflect read only access to an existing file.
-
-        :param path: The share relative path of the file or directory which to operate on.
-        :param session: An SMB session with to access the file or directory.
-        :param tree_id: The tree ID of the SMB share where the specified file or directory will be or is located.
-        :param requested_oplock_level:
-        :param impersonation_level:
-        :param desired_access:
-        :param file_attributes:
-        :param share_access:
-        :param create_disposition:
-        :param create_options:
-        :param create_context_list:
-        :return:
-        """
-
-        create_response: CreateResponse = (
-            await self._create(
-                path=path,
-                session=session,
-                tree_id=tree_id,
-                requested_oplock_level=requested_oplock_level,
-                impersonation_level=impersonation_level,
-                desired_access=desired_access,
-                file_attributes=file_attributes,
-                share_access=share_access,
-                create_disposition=create_disposition,
-                create_options=create_options,
-                create_context_list=create_context_list
-            )
-        )
-
-        yield create_response
-
-        await self.close(session=session, tree_id=tree_id, file_id=create_response.file_id)
-
-    @asynccontextmanager
-    async def create_dir(
-        self,
-        path: Union[str, PureWindowsPath],
-        session: SMBv2Session,
-        tree_id: int,
-        requested_oplock_level: OplockLevel = OplockLevel.SMB2_OPLOCK_LEVEL_NONE,
-        impersonation_level: ImpersonationLevel = ImpersonationLevel.IMPERSONATION,
-        desired_access: DirectoryAccessMask = DirectoryAccessMask(
-            file_list_directory=True,
-            file_read_attributes=True
-        ),
-        file_attributes: FileAttributes = FileAttributes(directory=True),
-        share_access: ShareAccess = ShareAccess(read=True),
-        create_disposition: CreateDisposition = CreateDisposition.FILE_OPEN,
-        create_options: CreateOptions = CreateOptions(directory_file=True),
-        create_context_list: CreateContextList = None
-    ):
-        """
-
-        :param path:
-        :param session:
-        :param tree_id:
-        :param requested_oplock_level:
-        :param impersonation_level:
-        :param desired_access:
-        :param file_attributes:
-        :param share_access:
-        :param create_disposition:
-        :param create_options:
-        :param create_context_list:
-        :return:
-        """
-
-        create_response: CreateResponse = (
-            await self._create(
-                path=path,
-                session=session,
-                tree_id=tree_id,
-                requested_oplock_level=requested_oplock_level,
-                impersonation_level=impersonation_level,
-                desired_access=desired_access,
-                file_attributes=file_attributes,
-                share_access=share_access,
-                create_disposition=create_disposition,
-                create_options=create_options,
-                create_context_list=create_context_list
-            )
-        )
-
-        yield create_response
-
-        await self.close(session=session, tree_id=tree_id, file_id=create_response.file_id)
-
-    def read(
-        self,
-        file_id: FileId,
-        file_size: int,
-        session: SMBv2Session,
-        tree_id: int,
-        use_generator: bool = False
-    ) -> Union[Awaitable[bytes], AsyncGenerator[bytes, None]]:
-        """
-        Read data from a file in an SMB share.
-
-        :param file_id: An identifier of the file which to read.
-        :param file_size: The number of bytes to read from the file.
-        :param session: An SMB session with access to the file.
-        :param tree_id: The tree ID of the SMB share that stores the file.
-        :param use_generator: Whether to return the read data via a generator.
-        :return: The data of the file or a generator that yields the data.
-        """
-
-        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
-            raise NotImplementedError
-
-        async def read_chunks():
-            num_bytes_remaining = file_size
-            offset = 0
-            while num_bytes_remaining != 0:
-                num_bytes_to_read = min(num_bytes_remaining, self.negotiated_details.max_read_size)
-                read_response: ReadResponse = await self._obtain_response(
-                    request_message=ReadRequest210(
-                        header=SMB210SyncRequestHeader(
-                            command=SMBv2Command.SMB2_READ,
-                            session_id=session.session_id,
-                            tree_id=tree_id,
-                            credit_charge=calculate_credit_charge(
-                                variable_payload_size=0,
-                                expected_maximum_response_size=file_size
-                            )
-                        ),
-                        padding=Header.STRUCTURE_SIZE + (ReadResponse.STRUCTURE_SIZE - 1),
-                        length=num_bytes_to_read,
-                        offset=offset,
-                        file_id=file_id,
-                        minimum_count=0,
-                        remaining_bytes=0
-                    )
-                )
-
-                yield read_response.buffer
-
-                num_bytes_remaining -= num_bytes_to_read
-                offset += num_bytes_to_read
-
-        async def merge_read_chunks() -> bytes:
-            return b''.join([chunk async for chunk in read_chunks()])
-
-        return create_task(merge_read_chunks()) if not use_generator else read_chunks()
-
-    async def write(
-        self,
-        write_data: bytes,
-        file_id: FileId,
-        session: SMBv2Session,
-        tree_id: int,
-        offset: int = 0,
-        remaining_bytes: int = 0,
-        flags: WriteFlag = WriteFlag()
-    ) -> int:
-        """
-        Write data to a file in an SMB share.
-
-        :param write_data: The data to be written.
-        :param file_id: An identifier of the file whose data is to be written.
-        :param session: An SMB session with access to the file.
-        :param tree_id: The tree id of the SMB share that stores the file.
-        :param offset: The offset, in bytes, of where to write the data in the destination file.
-        :param remaining_bytes: The number of subsequent bytes the client intends to write to the file after this
-            operation completes. Not binding.
-        :param flags: Flags indicating how to process the operation.
-        :return: The number of bytes written.
-        """
-
-        # TODO: Support more dialects.
-        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
-            raise NotImplementedError
-
-        write_response: WriteResponse = await self._obtain_response(
-            request_message=WriteRequest210(
-                header=SMB210SyncRequestHeader(
-                    command=SMBv2Command.SMB2_WRITE,
-                    session_id=session.session_id,
-                    tree_id=tree_id,
-                    credit_charge=calculate_credit_charge(
-                        variable_payload_size=0,
-                        expected_maximum_response_size=Header.STRUCTURE_SIZE + WriteResponse.STRUCTURE_SIZE
-                    )
-                ),
-                write_data=write_data,
-                offset=offset,
-                file_id=file_id,
-                remaining_bytes=remaining_bytes,
-                flags=flags
-            )
-        )
-
-        return write_response.count
-
-    # TODO: Extend the return type once more types are supported.
-    async def query_directory(
-        self,
-        file_id: FileId,
-        file_information_class: FileInformationClass,
-        query_directory_flag: QueryDirectoryFlag,
-        session: SMBv2Session,
-        tree_id: int,
-        file_name_pattern: str = '',
-        file_index: int = 0,
-        output_buffer_length: int = 256_000
-    ) -> List[Union[FileDirectoryInformation, FileIdFullDirectoryInformation]]:
-        """
-        Obtain information about a directory in an SMB share.
-
-        :param file_id: An identifier for the directory about which to obtain information.
-        :param file_information_class: A specification of the type of information to obtain.
-        :param query_directory_flag: A flag indicating how the operation is to be processed.
-        :param session: An SMB session with access to the directory.
-        :param tree_id: The tree id of the SMB share that stores the directory.
-        :param file_name_pattern: A search pattern specifying which entries in the the directory to retrieve information
-            about.
-        :param file_index: The byte offset within the directory, indicating the position at which to resume the
-            enumeration.
-        :param output_buffer_length: The maximum number of bytes the server is allowed to return in the response.
-        :return: A collection of information entries about the content of the directory.
-        """
-
-        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
-            raise NotImplementedError
-
-        query_directory_response: QueryDirectoryResponse = await self._obtain_response(
-            request_message=QueryDirectoryRequest(
-                header=SMB210SyncRequestHeader(
-                    command=SMBv2Command.SMB2_QUERY_DIRECTORY,
-                    session_id=session.session_id,
-                    tree_id=tree_id,
-                    # TODO: Consider this value.
-                    credit_charge=64
-                ),
-                file_information_class=file_information_class,
-                flags=query_directory_flag,
-                file_id=file_id,
-                file_name=file_name_pattern,
-                file_index=file_index,
-                output_buffer_length=output_buffer_length
-            )
-        )
-
-        if file_information_class is FileInformationClass.FileDirectoryInformation:
-            return query_directory_response.file_directory_information()
-        elif file_information_class is FileInformationClass.FileIdFullDirectoryInformation:
-            return query_directory_response.file_id_full_directory_information()
-        else:
-            raise NotImplementedError
-
-    async def change_notify(
-        self,
-        file_id: FileId,
-        session: SMBV2Session,
-        tree_id: int,
-        completion_filter_flag: Optional[CompletionFilterFlag] = None,
-        watch_tree: bool = False
-    ) -> Awaitable[ChangeNotifyResponse]:
-        """
-        Monitor a directory in an SMB share for changes and notify.
-
-        Only one notification is sent per change notify request. The notification is sent asynchronously.
-
-        :param file_id: An identifier for the directory to be monitored for changes.
-        :param session: An SMB session with access to the directory to be monitored.
-        :param tree_id: The tree ID of the share that stores the directory to be monitored.
-        :param completion_filter_flag: A flag that specifies which type of changes to notify about.
-        :param watch_tree: Whether to monitor the subdirectories of the directory.
-        :return: A `Future` object that resolves to a `ChangeNotifyResponse` containing a notification.
-        """
-
-        if completion_filter_flag is None:
-            completion_filter_flag = CompletionFilterFlag()
-            completion_filter_flag.set_all()
-
-        if self.negotiated_details.dialect is not Dialect.SMB_2_1:
-            raise NotImplementedError
-
-        return await self._obtain_response(
-            request_message=ChangeNotifyRequest(
-                header=SMB210SyncRequestHeader(
-                    command=SMBv2Command.SMB2_CHANGE_NOTIFY,
-                    session_id=session.session_id,
-                    tree_id=tree_id,
-                    # TODO: Arbitrary number. Reconsider.
-                    credit_charge=64
-                ),
-                flags=ChangeNotifyFlag(watch_tree=watch_tree),
-                file_id=file_id,
-                completion_filter=completion_filter_flag
-            ),
-            await_async_response=False
-        )
-
-    @asynccontextmanager
-    async def make_smbv2_transport(
-        self,
-        session: SMBv2Session,
-        # TODO: Is this the correct name?
-        pipe: str,
-        # TODO: This argument does not make much sense to me...
-        server_address: Optional[Union[str, IPv4Address, IPv6Address]] = None,
-    ):
-
-        async with self.tree_connect(share_name='IPC$', session=session, server_address=server_address) as (tree_id, share_type):
-            if share_type is not ShareType.SMB2_SHARE_TYPE_PIPE:
-                # TODO: Use proper exception.
-                raise ValueError
-
-            create_options: Dict[str, Any] = dict(
-                path=pipe,
-                session=session,
-                tree_id=tree_id,
-                requested_oplock_level=OplockLevel.SMB2_OPLOCK_LEVEL_NONE,
-                desired_access=FilePipePrinterAccessMask(file_read_data=True, file_write_data=True),
-                file_attributes=FileAttributes(normal=True),
-                share_access=ShareAccess(),
-                create_disposition=CreateDisposition.FILE_OPEN,
-                create_options=CreateOptions(non_directory_file=True)
-            )
-
-            async with self.create(**create_options) as create_response:
-                yield (
-                    partial(
-                        self.read,
-                        file_id=create_response.file_id,
-                        # TODO: Not sure about this value.
-                        file_size=self.negotiated_details.max_read_size,
-                        session=session,
-                        tree_id=tree_id,
-                        use_generator=False
-                    ),
-                    partial(
-                        self.write,
-                        file_id=create_response.file_id,
-                        session=session,
-                        tree_id=tree_id,
-                        offset=0,
-                        remaining_bytes=0,
-                        flags=WriteFlag()
-                    )
-                )
 

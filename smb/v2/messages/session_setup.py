@@ -95,7 +95,7 @@ class SessionSetupRequest(RequestMessage):
         return bytes(self.header) + b''.join([
             struct_pack('<H', 25),
             struct_pack('<B', self.flags.value),
-            struct_pack('<B', self.security_mode.value),
+            struct_pack('<B', int(self.security_mode)),
             struct_pack('<I', int(self.capabilities)),
             self._RESERVED_CHANNEL,
             struct_pack('<H', len(self.header) + 24),

@@ -328,3 +328,9 @@ class MalformedChangeNotifyRequestError(MalformedSMBv2MessageError):
 
 class MalformedChangeNotifyResponseError(MalformedSMBv2MessageError):
     pass
+
+
+class CreditsNotAvailable(Exception):
+    def __init__(self, num_requested_credits: int):
+        super().__init__(f'The request for {num_requested_credits} could not be fulfilled.')
+        self.num_requested_credits = num_requested_credits

@@ -27,7 +27,7 @@ async def enumerate_share_files(
     tree_id: int,
     root_path: Union[str, PureWindowsPath] = '',
     num_max_concurrent: int = 10,
-    per_file_callback: Optional[Callable[[PureWindowsPath, FileInformation, SMBv2Connection, Session, int], bool]] = None
+    per_file_callback: Optional[Callable[[PureWindowsPath, FileInformation, Session, int], bool]] = None
 ) -> None:
     """
     Enumerate files in an SMB share.

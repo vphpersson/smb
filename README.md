@@ -23,7 +23,6 @@ from smb.v2.messages.query_directory import FileInformationClass, FileDirectoryI
 
 
 async def enumerate_share_files(
-    smb_connection: SMBv2Connection,
     smb_session: Session,
     tree_id: int,
     root_path: Union[str, PureWindowsPath] = '',
@@ -37,7 +36,6 @@ async def enumerate_share_files(
     `per_file_callback` allows one to inspect each enumerated file as they are encountered and -- in the case of
     directories -- make a decision whether to enumerate it.
 
-    :param smb_connection: An SMB connection with access to the share whose files are to be enumerated.
     :param smb_session: An SMB session with access to the share whose files are to be enumerated.
     :param tree_id: The tree id of the share whose files are to be enumerated.
     :param root_path: The root path from which to enumerate files.
@@ -54,13 +52,12 @@ async def enumerate_share_files(
         :return: A list of the path's file and directory information entries.
         """
 
-        async with smb_connection.create_dir(path=path, session=smb_session, tree_id=tree_id) as create_response:
-            return await smb_connection.query_directory(
+        async with smb_session.create_dir(path=path, tree_id=tree_id) as create_response:
+            return await smb_session.query_directory(
                 file_id=create_response.file_id,
                 file_information_class=FileInformationClass.FileIdFullDirectoryInformation,
                 query_directory_flag=QueryDirectoryFlag(),
                 file_name_pattern='*',
-                session=smb_session,
                 tree_id=tree_id
             )
 
@@ -100,7 +97,6 @@ async def enumerate_share_files(
                 should_scan: bool = per_file_callback(
                     entry_path,
                     entry.file_information,
-                    smb_connection,
                     smb_session,
                     tree_id
                 )
@@ -121,7 +117,7 @@ async def main():
         async with SMBv2Connection(tcp_ip_transport=tcp_ip_transport) as smb_connection:
             await smb_connection.negotiate()
             async with smb_connection.setup_session(username=username, authentication_secret=password) as smb_session:
-                async with smb_connection.tree_connect(share_name=share_name, session=smb_session) as (tree_id, _):
+                async with smb_session.tree_connect(share_name=share_name) as (tree_id, _):
                     script_paths: List[str] = []
 
                     def collect_script_paths(entry_path: PureWindowsPath, *_, **__) -> bool:
@@ -130,7 +126,6 @@ async def main():
                         return True
 
                     await enumerate_share_files(
-                        smb_connection=smb_connection,
                         smb_session=smb_session,
                         tree_id=tree_id,
                         per_file_callback=collect_script_paths
@@ -192,7 +187,7 @@ async def main():
         async with SMBv2Connection(tcp_ip_transport=tcp_ip_transport) as smb_connection:
             await smb_connection.negotiate()
             async with smb_connection.setup_session(username=username, authentication_secret=password) as smb_session:
-                async with smb_connection.make_smbv2_transport(session=smb_session, pipe=MS_SRVS_PIPE_NAME) as (r, w):
+                async with smb_session.make_smbv2_transport(pipe=MS_SRVS_PIPE_NAME) as (r, w):
                     async with RPCConnection(reader=r, writer=w) as rpc_connection:
                         await rpc_connection.bind(
                             presentation_context_list=ContextList([
@@ -235,8 +230,8 @@ Type: Disk drive (special)
 Remark: Default share
 
 Name: cool_share
-Type: Disk drive
-Remark:
+Type: Disk drive 
+Remark: 
 
 Name: IPC$
 Type: Interprocess communication (special)

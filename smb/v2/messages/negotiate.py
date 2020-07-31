@@ -58,7 +58,7 @@ class NegotiateResponse(ResponseMessage, ABC):
         base_kwargs = dict(
             header=header,
             dialect_revision=dialect_revision,
-            security_mode=SecurityMode(struct_unpack('<H', body_data[2:4])[0]),
+            security_mode=SecurityMode.from_int(value=struct_unpack('<H', body_data[2:4])[0]),
             server_guid=UUID(bytes=body_data[8:24]),
             capabilities=CapabilitiesFlag.from_int(struct_unpack('<I', body_data[24:28])[0]),
             max_transact_size=struct_unpack('<I', body_data[28:32])[0],
@@ -243,7 +243,7 @@ class NegotiateRequest(RequestMessage, ABC):
         return bytes(self.header) + b''.join([
             struct_pack('<H', 36),
             struct_pack('<H', self.dialect_count),
-            struct_pack('<H', self.security_mode),
+            struct_pack('<H', int(self.security_mode)),
             b'\x00\x00',
             struct_pack('<I', capabilities) if capabilities is not None else b'\x00\x00\x00\x00',
             self.client_guid.bytes,

@@ -4,4 +4,4 @@ from abc import ABC
 
 @dataclass
 class SMBSession(ABC):
-    ...
+    pass

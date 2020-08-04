@@ -2,7 +2,6 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 from typing import Dict, Optional, Tuple, Awaitable, Union, Final, NoReturn
 from asyncio import Future, create_task
-from ipaddress import IPv4Address, IPv6Address
 from contextlib import asynccontextmanager
 from functools import partial
 from logging import getLogger
@@ -267,6 +266,9 @@ class Connection(SMBConnectionBase):
         :return: None
         """
 
+        if preferred_dialect is not Dialect.SMB_2_1:
+            raise NotImplementedError
+
         # TODO: In future, I want to support more dialects.
         negotiate_response: NegotiateResponse = await self._obtain_response(
             request_message=NegotiateRequest(
@@ -373,8 +375,6 @@ class Connection(SMBConnectionBase):
             workstation_name=workstation_name
         )
 
-        ntlm_context_authenticate = ntlm_context.initiate()
-
         session_setup_response_1: SessionSetupResponse = await self._obtain_response(
             request_message=SessionSetupRequest(
                 header=Header.from_dialect(
@@ -393,7 +393,7 @@ class Connection(SMBConnectionBase):
                     NegTokenInit(
                         mech_types=[mech_type],
                         # A serialized NTLM Negotiate message.
-                        mech_token=bytes(next(ntlm_context_authenticate))
+                        mech_token=bytes(next(ntlm_context))
                     )
                 )
             )
@@ -415,7 +415,7 @@ class Connection(SMBConnectionBase):
             raise ValueError
 
         response_token = bytes(
-            ntlm_context_authenticate.send(
+            ntlm_context.send(
                 NTLMChallengeMessage.from_bytes(
                     neg_token_resp_1.response_token
                 )
@@ -497,8 +497,3 @@ class Connection(SMBConnectionBase):
             workstation_name=workstation_name,
         ) as session:
             yield session
-
-
-
-
-

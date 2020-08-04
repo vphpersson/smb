@@ -170,11 +170,7 @@ class Session(ABC):
             sign_key=self.session_key
         )
 
-    async def _tree_connect(
-            self,
-            share_name: str,
-            server_address: str = '*'
-    ) -> Tuple[int, ShareType]:
+    async def _tree_connect(self, share_name: str, server_address: str = '*') -> Tuple[int, ShareType]:
 
         if self.connection.negotiated_details.dialect is not Dialect.SMB_2_1:
             raise NotImplementedError

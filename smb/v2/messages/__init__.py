@@ -1,13 +1,13 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import ClassVar, Tuple, Dict, Type
+from typing import ClassVar, Tuple, Dict, Type, ByteString
 from math import ceil
 from struct import unpack_from as struct_unpack_from
 
 from smb.message import Message as SMBMessageBase
 from smb.v2.header import Header, SMBv2Command, RequestHeader, ResponseHeader
-from smb.exceptions import IncorrectStructureSizeError, MalformedSMBv2MessageError
+from smb.exceptions import MalformedSMBv2MessageError
 
 
 # TODO: Does this make sense?
@@ -36,13 +36,13 @@ class Message(SMBMessageBase, ABC):
 
     @classmethod
     @abstractmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> Message:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> Message:
         cls._check_structure_size(
             structure_size_to_test=struct_unpack_from('<H', buffer=data, offset=len(header))[0]
         )
 
     @classmethod
-    def from_bytes_and_header(cls, data: bytes, header: Header) -> Message:
+    def from_bytes_and_header(cls, data: ByteString, header: Header) -> Message:
 
         # Import the SMBv2 messages to make sure that they are registered in the map.
         from smb.v2.messages.negotiate import NegotiateRequest, NegotiateResponse
@@ -63,12 +63,12 @@ class Message(SMBMessageBase, ABC):
                 if lookup_key_tuple != (cls.COMMAND, issubclass(cls, ResponseMessage)):
                     # TODO: Use proper exception.
                     raise ValueError
-                return cls._from_bytes_and_header(data=data, header=header)
+                return cls._from_bytes_and_header(data=memoryview(data), header=header)
             else:
-                return cls._COMMAND_AND_TYPE_TO_CLASS[lookup_key_tuple]._from_bytes_and_header(data=data, header=header)
+                return cls._COMMAND_AND_TYPE_TO_CLASS[lookup_key_tuple]._from_bytes_and_header(data=memoryview(data), header=header)
         except MalformedSMBv2MessageError as e:
             try:
-                return ErrorResponse._from_bytes_and_header(data=data, header=header)
+                return ErrorResponse._from_bytes_and_header(data=memoryview(data), header=header)
             except MalformedSMBv2MessageError:
                 raise e
 

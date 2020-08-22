@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Tuple, Type
-from struct import pack as struct_pack, unpack as struct_unpack
+from struct import pack, unpack_from
 
 from msdsalgs.utils import extract_elements
 from msdsalgs.fscc.file_notify_information import FileNotifyInformation
@@ -25,14 +25,13 @@ class ChangeNotifyResponse(ResponseMessage):
     file_notify_entries: Tuple[FileNotifyInformation, ...]
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ChangeNotifyResponse:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> ChangeNotifyResponse:
         super()._from_bytes_and_header(data=data, header=header)
 
-        body_data: bytes = data[len(header):]
-        cls._check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
+        body_data: memoryview = data[len(header):]
 
-        output_buffer_offset: int = struct_unpack('<H', body_data[2:4])[0]
-        output_buffer_length: int = struct_unpack('<I', body_data[4:8])[0]
+        output_buffer_offset: int = unpack_from('<H', buffer=body_data, offset=2)[0]
+        output_buffer_length: int = unpack_from('<I', buffer=body_data, offset=4)[0]
 
         return cls(
             header=header,
@@ -53,9 +52,9 @@ class ChangeNotifyResponse(ResponseMessage):
         output_buffer_bytes: bytes = b''.join(bytes(entry) for entry in self.file_notify_entries)
 
         return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<H', output_buffer_offset),
-            struct_pack('<I', len(output_buffer_bytes)),
+            pack('<H', self.STRUCTURE_SIZE),
+            pack('<H', output_buffer_offset),
+            pack('<I', len(output_buffer_bytes)),
             output_buffer_bytes
         ])
 
@@ -76,30 +75,30 @@ class ChangeNotifyRequest(RequestMessage):
     output_buffer_length: int = 8192
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> SMBv2Message:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> SMBv2Message:
         super()._from_bytes_and_header(data=data, header=header)
 
-        body_data: bytes = data[len(header):]
+        body_data: memoryview = data[len(header):]
 
-        if body_data[28:32] != cls._RESERVED:
+        if bytes(body_data[28:32]) != cls._RESERVED:
             # TODO: Use proper exception.
             raise ValueError
 
         return cls(
             header=header,
-            flags=ChangeNotifyFlag.from_int(struct_pack('<H', body_data[2:4])),
-            output_buffer_length=struct_unpack('<I', body_data[4:8])[0],
-            file_id=FileId.from_bytes(data=body_data[8:24]),
-            completion_filter=CompletionFilterFlag.from_int(struct_unpack('<I', body_data[24:28])[0])
+            flags=ChangeNotifyFlag.from_int(pack('<H', body_data[2:4])),
+            output_buffer_length=unpack_from('<I', buffer=body_data, offset=4)[0],
+            file_id=FileId.from_bytes(data=body_data, base_offset=8),
+            completion_filter=CompletionFilterFlag.from_int(unpack_from('<I', buffer=body_data, offset=24)[0])
         )
 
     def __bytes__(self):
         return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<H', int(self.flags)),
-            struct_pack('<I', self.output_buffer_length),
+            pack('<H', self.STRUCTURE_SIZE),
+            pack('<H', int(self.flags)),
+            pack('<I', self.output_buffer_length),
             bytes(self.file_id),
-            struct_pack('<I', int(self.completion_filter)),
+            pack('<I', int(self.completion_filter)),
             self._RESERVED
         ])
 

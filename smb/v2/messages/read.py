@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Dict, Any, Type
-from struct import pack as struct_pack, unpack as struct_unpack
+from struct import pack, unpack as struct_unpack, unpack_from
 from abc import ABC
 
 from smb.v2.messages import RequestMessage, ResponseMessage, Message
@@ -25,6 +25,7 @@ class ReadResponse(ResponseMessage):
     _RESERVED: ClassVar[bytes] = bytes(1)
     _RESERVED_2: ClassVar[bytes] = bytes(4)
 
+    # TODO: Should this really be `bytes`?
     buffer: bytes
     data_remaining_length: int
 
@@ -33,27 +34,30 @@ class ReadResponse(ResponseMessage):
         return len(self.buffer)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ReadResponse:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> ReadResponse:
         super()._from_bytes_and_header(data=data, header=header)
 
-        body_data = data[len(header):]
+        body_data: memoryview = data[len(header):]
 
-        # TODO: The docs says that it should be ignored by the client; use strict mode?
-        reserved = body_data[3:4]
-        if reserved != cls._RESERVED:
-            raise NonEmptyReadResponseReservedValueError(observed_reserved_value=reserved)
+        if (reserved := bytes(body_data[3:4])) != cls._RESERVED:
+            raise NonEmptyReadResponseReservedValueError(
+                observed_reserved_value=reserved,
+                expected_reserved_value=cls._RESERVED
+            )
 
-        reserved_2 = body_data[12:16]
-        if reserved_2 != cls._RESERVED_2:
-            raise NonEmptyReadResponseReserved2ValueError(observed_reserved_2_value=reserved_2)
+        if (reserved_2 := bytes(body_data[12:16])) != cls._RESERVED_2:
+            raise NonEmptyReadResponseReserved2ValueError(
+                observed_reserved_value=reserved_2,
+                expected_reserved_value=cls._RESERVED_2
+            )
 
-        data_offset: int = struct_unpack('<B', body_data[2:3])[0]
-        data_length: int = struct_unpack('<I', body_data[4:8])[0]
+        data_offset: int = unpack_from('<B', buffer=body_data, offset=2)[0]
+        data_length: int = unpack_from('<I', buffer=body_data, offset=4)[0]
 
         return cls(
             header=header,
-            data_remaining_length=struct_unpack('<I', body_data[8:12])[0],
-            buffer=data[data_offset:data_offset+data_length]
+            data_remaining_length=unpack_from('<I', buffer=body_data, offset=8)[0],
+            buffer=bytes(data[data_offset:data_offset+data_length])
         )
 
     def __bytes__(self) -> bytes:
@@ -61,11 +65,11 @@ class ReadResponse(ResponseMessage):
         data_offset = len(self.header) + self.STRUCTURE_SIZE - 1
 
         return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<B', data_offset),
+            pack('<H', self.STRUCTURE_SIZE),
+            pack('<B', data_offset),
             self._RESERVED,
-            struct_pack('<I', len(self.buffer)),
-            struct_pack('<I', self.data_remaining_length),
+            pack('<I', len(self.buffer)),
+            pack('<I', self.data_remaining_length),
             self._RESERVED_2,
             self.buffer
         ])
@@ -97,24 +101,24 @@ class ReadRequest(RequestMessage, ABC):
     remaining_bytes: int
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ReadRequest:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> ReadRequest:
         super()._from_bytes_and_header(data=data, header=header)
 
-        body_bytes: bytes = data[len(header):]
+        body_bytes: memoryview = data[len(header):]
 
         read_request_base_args: Dict[str, Any] = dict(
-            padding=struct_unpack('<B', body_bytes[2:3])[0],
-            length=struct_unpack('<I', body_bytes[4:8])[0],
-            offset=struct_unpack('<Q', body_bytes[8:16])[0],
-            file_id=FileId.from_bytes(body_bytes[16:32]),
-            minimum_count=struct_unpack('<I', body_bytes[32:36])[0],
-            remaining_bytes=struct_unpack('<I', body_bytes[40:44])[0]
+            padding=unpack_from('<B', buffer=body_bytes, offset=2)[0],
+            length=unpack_from('<I', buffer=body_bytes, offset=4)[0],
+            offset=unpack_from('<Q', buffer=body_bytes, offset=8)[0],
+            file_id=FileId.from_bytes(data=body_bytes, base_offset=16),
+            minimum_count=unpack_from('<I', buffer=body_bytes, offset=32)[0],
+            remaining_bytes=unpack_from('<I', buffer=body_bytes, offset=40)[0]
         )
 
-        flags_raw: bytes = body_bytes[3:4]
-        channel_raw: bytes = body_bytes[36:40]
-        read_channel_info_offset_raw: bytes = body_bytes[44:46]
-        read_channel_info_length_raw: bytes = body_bytes[46:48]
+        flags_raw = bytes(body_bytes[3:4])
+        channel_raw = bytes(body_bytes[36:40])
+        read_channel_info_offset_raw = bytes(body_bytes[44:46])
+        read_channel_info_length_raw = bytes(body_bytes[46:48])
 
         if header.DIALECT in {Dialect.SMB_2_0_2, Dialect.SMB_2_1}:
             if flags_raw != cls._RESERVED_FLAGS_VALUE:
@@ -133,7 +137,7 @@ class ReadRequest(RequestMessage, ABC):
 
         read_channel_info_offset: int = struct_unpack('<H', read_channel_info_offset_raw)[0]
         read_channel_info_length: int = struct_unpack('<H', read_channel_info_length_raw)[0]
-        read_channel_buffer: bytes = data[read_channel_info_offset:read_channel_info_offset + read_channel_info_length]
+        read_channel_buffer: bytes = bytes(data[read_channel_info_offset:read_channel_info_offset + read_channel_info_length])
         channel = ReadRequestChannel(struct_unpack('<I', channel_raw)[0])
 
         if header.DIALECT is Dialect.SMB_3_0:
@@ -147,7 +151,7 @@ class ReadRequest(RequestMessage, ABC):
             )
 
         try:
-            flags = ReadRequestFlag.from_int(struct_unpack('<B', body_bytes[3:4])[0])
+            flags = ReadRequestFlag.from_int(unpack_from('<B', buffer=body_bytes, offset=3)[0])
         except ValueError as e:
             raise InvalidReadRequestFlagError from e
 
@@ -164,23 +168,23 @@ class ReadRequest(RequestMessage, ABC):
         raise ValueError
 
     def _to_bytes(
-            self,
-            flags_bytes_value: bytes,
-            channel_bytes_value: bytes,
-            read_channel_offset_bytes_value: bytes,
-            read_channel_length_bytes_value: bytes,
-            read_channel_buffer: bytes
+        self,
+        flags_bytes_value: bytes,
+        channel_bytes_value: bytes,
+        read_channel_offset_bytes_value: bytes,
+        read_channel_length_bytes_value: bytes,
+        read_channel_buffer: bytes
     ) -> bytes:
         return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<B', self.padding),
+            pack('<H', self.STRUCTURE_SIZE),
+            pack('<B', self.padding),
             flags_bytes_value,
-            struct_pack('<I', self.length),
-            struct_pack('<Q', self.offset),
+            pack('<I', self.length),
+            pack('<Q', self.offset),
             bytes(self.file_id),
-            struct_pack('<I', self.minimum_count),
+            pack('<I', self.minimum_count),
             channel_bytes_value,
-            struct_pack('<I', self.remaining_bytes),
+            pack('<I', self.remaining_bytes),
             read_channel_offset_bytes_value,
             read_channel_length_bytes_value,
             read_channel_buffer
@@ -230,9 +234,9 @@ class ReadRequest300(ReadRequest3X):
     def __bytes__(self) -> bytes:
         return super()._to_bytes(
             flags_bytes_value=self._RESERVED_FLAGS_VALUE,
-            channel_bytes_value=struct_pack('<I', self.channel.value),
-            read_channel_offset_bytes_value=struct_pack('<H', self.STRUCTURE_SIZE - 1),
-            read_channel_length_bytes_value=struct_pack('<H', len(self.read_channel_buffer)),
+            channel_bytes_value=pack('<I', self.channel.value),
+            read_channel_offset_bytes_value=pack('<H', self.STRUCTURE_SIZE - 1),
+            read_channel_length_bytes_value=pack('<H', len(self.read_channel_buffer)),
             read_channel_buffer=self.read_channel_buffer
         )
 
@@ -244,10 +248,10 @@ class ReadRequest302(ReadRequest3X):
 
     def __bytes__(self) -> bytes:
         return super()._to_bytes(
-            flags_bytes_value=struct_pack('<B', int(self.flags)),
-            channel_bytes_value=struct_pack('<I', self.channel.value),
-            read_channel_offset_bytes_value=struct_pack('<H', self.STRUCTURE_SIZE - 1),
-            read_channel_length_bytes_value=struct_pack('<H', len(self.read_channel_buffer)),
+            flags_bytes_value=pack('<B', int(self.flags)),
+            channel_bytes_value=pack('<I', self.channel.value),
+            read_channel_offset_bytes_value=pack('<H', self.STRUCTURE_SIZE - 1),
+            read_channel_length_bytes_value=pack('<H', len(self.read_channel_buffer)),
             read_channel_buffer=self.read_channel_buffer
         )
 
@@ -259,10 +263,10 @@ class ReadRequest311(ReadRequest3X):
 
     def __bytes__(self) -> bytes:
         return super()._to_bytes(
-            flags_bytes_value=struct_pack('<B', int(self.flags)),
-            channel_bytes_value=struct_pack('<I', self.channel.value),
-            read_channel_offset_bytes_value=struct_pack('<H', self.STRUCTURE_SIZE - 1),
-            read_channel_length_bytes_value=struct_pack('<H', len(self.read_channel_buffer)),
+            flags_bytes_value=pack('<B', int(self.flags)),
+            channel_bytes_value=pack('<I', self.channel.value),
+            read_channel_offset_bytes_value=pack('<H', self.STRUCTURE_SIZE - 1),
+            read_channel_length_bytes_value=pack('<H', len(self.read_channel_buffer)),
             read_channel_buffer=self.read_channel_buffer
         )
 

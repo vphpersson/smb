@@ -1,8 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from struct import unpack as struct_unpack, pack as struct_pack
+from struct import unpack as struct_unpack, pack as struct_pack, unpack_from
 from math import ceil
-from typing import List
+from typing import List, ByteString
 
 
 # TODO: In future, make this an abstract class.
@@ -13,14 +13,14 @@ class CreateContext:
     next: int
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> CreateContext:
-        # TODO: Make additional checks?
+    def from_bytes(cls, data: ByteString, base_offset: int = 0) -> CreateContext:
+        data = memoryview(data)[base_offset:]
 
-        name_offset: int = struct_unpack('<H', data[4:6])[0]
-        name_length: int = struct_unpack('<H', data[6:8])[0]
+        name_offset: int = unpack_from('<H', buffer=data, offset=4)[0]
+        name_length: int = unpack_from('<H', buffer=data, offset=6)[0]
 
-        data_offset: int = struct_unpack('<H', data[10:12])[0]
-        data_length: int = struct_unpack('<H', data[12:14])[0]
+        data_offset: int = unpack_from('<H', buffer=data, offset=10)[0]
+        data_length: int = unpack_from('<H', buffer=data, offset=12)[0]
 
         return cls(
             name=data[name_offset:name_offset+name_length],
@@ -40,11 +40,11 @@ class CreateContext:
             struct_pack('<I', self.next),
             struct_pack('<H', name_offset),
             struct_pack('<H', name_len),
-            b'\x00\x00',
+            bytes(2),
             struct_pack('<H', current_buffer_offset),
             struct_pack('<I', len(self.data)),
             self.name,
-            num_name_padding * b'\x00',
+            bytes(num_name_padding),
             self.data
         ])
 
@@ -59,7 +59,7 @@ class CreateContextList(list):
         super().__init__(iterable)
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> CreateContextList:
+    def from_bytes(cls, data: ByteString) -> CreateContextList:
         if not data:
             return cls()
 
@@ -83,7 +83,7 @@ class CreateContextList(list):
             create_context_len = len(create_context_bytes)
             num_padding = int(ceil(create_context_len / 8)) * 8 - create_context_len
 
-            data += create_context_bytes + (num_padding * b'\x00')
+            data += create_context_bytes + bytes(num_padding)
 
         try:
             last_create_context_bytes = bytes(self[-1])

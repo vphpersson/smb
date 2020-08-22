@@ -1,17 +1,18 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Union, Optional, Type
-from struct import pack as struct_pack, unpack as struct_unpack, error as struct_error
+from struct import pack, error as struct_error, unpack_from
 from pathlib import PureWindowsPath
 from math import ceil
 from datetime import datetime
+from functools import partial
 
 from msdsalgs.fscc.file_attributes import FileAttributes
 from msdsalgs.time import filetime_to_datetime
 
 from smb.v2.messages import Message, RequestMessage, ResponseMessage
 from smb.v2.header import Header, SMBv2Command, SMB311SyncRequestHeader, SMB311AsyncHeader
-from smb.exceptions import IncorrectStructureSizeError, MalformedCreateRequestError, \
+from smb.exceptions import MalformedCreateRequestError, \
     NonEmptySecurityFlagsError, NonEmptySmbCreateFlagsError, InvalidCreateDesiredAccessValueError, \
     InvalidCreateDispositionValueError, InvalidCreateFileAttributesValueError, \
     InvalidCreateImpersonationLevelValueError, InvalidCreateOplockLevelValueError, \
@@ -70,15 +71,12 @@ class CreateResponse(ResponseMessage):
         return filetime_to_datetime(filetime=self._change_time)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> CreateResponse:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> CreateResponse:
         super()._from_bytes_and_header(data=data, header=header)
 
-        body_data: bytes = data[len(header):]
+        body_data: memoryview = data[len(header):]
 
-        try:
-            cls._check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedCreateResponseError(str(e)) from e
+        partial_unpack_from = partial(unpack_from, buffer=body_data)
 
         try:
             oplock_level = OplockLevel(body_data[2])
@@ -95,7 +93,7 @@ class CreateResponse(ResponseMessage):
                 expected_response_flag_values=[cls._RESERVED_FLAG_VALUE] + list(CreateFlag)
             ) from e
 
-        raw_create_action_value: int = struct_unpack('<I', body_data[4:8])[0]
+        raw_create_action_value: int = partial_unpack_from('<I', offset=8)[0]
         try:
             create_action = CreateAction(raw_create_action_value)
         except ValueError as e:
@@ -104,7 +102,7 @@ class CreateResponse(ResponseMessage):
                 expected_create_action_values=list(CreateAction)
             ) from e
 
-        raw_file_attributes_value: int = struct_unpack('<I', body_data[56:60])[0]
+        raw_file_attributes_value: int = partial_unpack_from('<I', offset=56)[0]
         try:
             file_attributes = FileAttributes.from_int(value=raw_file_attributes_value)
         except ValueError as e:
@@ -115,20 +113,20 @@ class CreateResponse(ResponseMessage):
 
         # Client should ignore value of `Reserved2`?
 
-        create_context_offset: int = struct_unpack('<I', body_data[80:84])[0]
-        create_context_length: int = struct_unpack('<I', body_data[84:88])[0]
+        create_context_offset: int = partial_unpack_from('<I', offset=80)[0]
+        create_context_length: int = partial_unpack_from('<I', offset=84)[0]
 
         return cls(
             header=header,
             oplock_level=oplock_level,
             flags=flags,
             create_action=create_action,
-            _creation_time=struct_unpack('<Q', body_data[8:16])[0],
-            _last_access_time=struct_unpack('<Q', body_data[16:24])[0],
-            _last_write_time=struct_unpack('<Q', body_data[24:32])[0],
-            _change_time=struct_unpack('<Q', body_data[32:40])[0],
-            allocation_size=struct_unpack('<Q', body_data[40:48])[0],
-            endof_file=struct_unpack('<Q', body_data[48:56])[0],
+            _creation_time=partial_unpack_from('<Q', offset=8)[0],
+            _last_access_time=partial_unpack_from('<Q', offset=16)[0],
+            _last_write_time=partial_unpack_from('<Q', offset=24)[0],
+            _change_time=partial_unpack_from('<Q', offset=32)[0],
+            allocation_size=partial_unpack_from('<Q', offset=40)[0],
+            endof_file=partial_unpack_from('<Q', offset=48)[0],
             file_attributes=file_attributes,
             file_id=FileId.from_bytes(data=body_data[64:80]),
             create_contexts=CreateContextList.from_bytes(
@@ -141,21 +139,21 @@ class CreateResponse(ResponseMessage):
         create_contexts_len: int = len(create_contexts_bytes)
 
         return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<B', self.oplock_level.value),
-            struct_pack('<B', self.flags) if self.flags is not None else b'\x00',
-            struct_pack('<I', self.create_action.value),
-            struct_pack('<Q', self._creation_time),
-            struct_pack('<Q', self._last_access_time),
-            struct_pack('<Q', self._last_write_time),
-            struct_pack('<Q', self._change_time),
-            struct_pack('<Q', self.allocation_size),
-            struct_pack('<Q', self.endof_file),
-            struct_pack('<I', int(self.file_attributes)),
+            pack('<H', self.STRUCTURE_SIZE),
+            pack('<B', self.oplock_level.value),
+            pack('<B', self.flags) if self.flags is not None else b'\x00',
+            pack('<I', self.create_action.value),
+            pack('<Q', self._creation_time),
+            pack('<Q', self._last_access_time),
+            pack('<Q', self._last_write_time),
+            pack('<Q', self._change_time),
+            pack('<Q', self.allocation_size),
+            pack('<Q', self.endof_file),
+            pack('<I', int(self.file_attributes)),
             self._RESERVED_2,
             bytes(self.file_id),
-            struct_pack('<I', self.STRUCTURE_SIZE - 2),
-            struct_pack('<I', create_contexts_len),
+            pack('<I', self.STRUCTURE_SIZE - 2),
+            pack('<I', create_contexts_len),
             create_contexts_bytes
         ])
 
@@ -171,10 +169,8 @@ class CreateRequest(RequestMessage):
     MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedCreateRequestError
     RESPONSE_MESSAGE_CLASS: ClassVar[ResponseMessage] = CreateResponse
     _RESERVED: ClassVar[bytes] = bytes(8)
-
-    # TODO: What are `security_flags` and `smb_create_flags` class vars?
-    security_flags: ClassVar[int] = 0
-    smb_create_flags: ClassVar[bytes] = bytes(8)
+    _RESERVED_SECURITY_FLAGS: ClassVar[int] = 0
+    _REVERSED_CREATE_FLAGS: ClassVar[bytes] = bytes(8)
 
     requested_oplock_level: OplockLevel
     impersonation_level: ImpersonationLevel
@@ -191,17 +187,11 @@ class CreateRequest(RequestMessage):
         return PureWindowsPath(self.name)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> SMBv2Message:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> SMBv2Message:
 
-        body_data: bytes = data[len(header):]
+        body_data: memoryview = data[len(header):]
 
-        try:
-            cls._check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedCreateRequestError(str(e)) from e
-
-        security_flags_value = body_data[2]
-        if security_flags_value != 0x00:
+        if (security_flags_value := body_data[2]) != 0x00:
             raise NonEmptySecurityFlagsError(observed_security_flags_value=security_flags_value)
 
         try:
@@ -210,54 +200,52 @@ class CreateRequest(RequestMessage):
             raise InvalidCreateOplockLevelValueError from e
 
         try:
-            impersonation_level = ImpersonationLevel(struct_unpack('<I', body_data[4:8])[0])
+            impersonation_level = ImpersonationLevel(unpack_from('<I', buffer=body_data, offset=4)[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateImpersonationLevelValueError from e
 
-        smb_create_flags = body_data[8:16]
-        if smb_create_flags != cls.smb_create_flags:
+        if (smb_create_flags := body_data[8:16]) != cls._REVERSED_CREATE_FLAGS:
             raise NonEmptySmbCreateFlagsError(observed_smb_create_flags_value=smb_create_flags)
 
-        reserved = body_data[16:24]
-        if reserved != cls._RESERVED:
+        if (reserved := body_data[16:24]) != cls._RESERVED:
             raise NonEmptyCreateReservedError(observed_reserved_value=reserved)
 
         try:
-            file_attributes = FileAttributes.from_int(struct_unpack('<I', body_data[28:32])[0])
+            file_attributes = FileAttributes.from_int(unpack_from('<I', buffer=body_data, offset=28)[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateFileAttributesValueError from e
 
         try:
-            share_access = ShareAccess.from_int(struct_unpack('<I', body_data[32:36])[0])
+            share_access = ShareAccess.from_int(unpack_from('<I', buffer=body_data, offset=32)[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateShareAccessValueError from e
 
         try:
-            create_disposition = CreateDisposition(struct_unpack('<I', body_data[36:40])[0])
+            create_disposition = CreateDisposition(unpack_from('<I', buffer=body_data, offset=36)[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateDispositionValueError from e
 
         try:
-            create_options = CreateOptions.from_int(struct_unpack('<I', body_data[40:44])[0])
+            create_options = CreateOptions.from_int(unpack_from('<I', buffer=body_data, offset=40)[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateOptionsValueError from e
 
         try:
             desired_access: Union[DirectoryAccessMask, FilePipePrinterAccessMask] = (
                 DirectoryAccessMask if create_options.directory_file else FilePipePrinterAccessMask
-            ).from_int(struct_unpack('<I', body_data[24:28])[0])
+            ).from_int(unpack_from('<I', buffer=body_data, offset=24)[0])
         except (ValueError, struct_error) as e:
             raise InvalidCreateDesiredAccessValueError from e
 
         try:
-            name_offset: int = struct_unpack('<H', body_data[44:46])[0]
-            name_length: int = struct_unpack('<H', body_data[46:48])[0]
-            name: str = data[name_offset:name_offset+name_length].decode('utf-16-le')
+            name_offset: int = unpack_from('<H', buffer=body_data, offset=44)[0]
+            name_length: int = unpack_from('<H', buffer=body_data, offset=46)[0]
+            name: str = bytes(data[name_offset:name_offset+name_length]).decode(encoding='utf-16-le')
         except (SyntaxError, struct_error) as e:
             raise InvalidCreateNameError from e
 
-        create_context_offset: int = struct_unpack('<I', data[48:52])[0]
-        create_context_length: int = struct_unpack('<I', data[52:56])[0]
+        create_context_offset: int = unpack_from('<I', buffer=data, offset=48)[0]
+        create_context_length: int = unpack_from('<I', buffer=data, offset=52)[0]
 
         create_context_list: Optional[CreateContextList] = CreateContextList.from_bytes(
             data=data[create_context_offset:create_context_offset+create_context_length]
@@ -290,23 +278,23 @@ class CreateRequest(RequestMessage):
         create_contexts_offset = current_buffer_offset if create_contexts_bytes else 0
 
         return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<B', self.security_flags),
-            struct_pack('<B', self.requested_oplock_level.value),
-            struct_pack('<I', self.impersonation_level.value),
-            self.smb_create_flags,
+            pack('<H', self.STRUCTURE_SIZE),
+            pack('<B', self._RESERVED_SECURITY_FLAGS),
+            pack('<B', self.requested_oplock_level.value),
+            pack('<I', self.impersonation_level.value),
+            self._REVERSED_CREATE_FLAGS,
             self._RESERVED,
-            struct_pack('<I', int(self.desired_access)),
-            struct_pack('<I', int(self.file_attributes)),
-            struct_pack('<I', int(self.share_access)),
-            struct_pack('<I', self.create_disposition),
-            struct_pack('<I', int(self.create_options)),
-            struct_pack('<H', name_offset),
-            struct_pack('<H', name_len),
-            struct_pack('<I', create_contexts_offset),
-            struct_pack('<I', create_contexts_len),
+            pack('<I', int(self.desired_access)),
+            pack('<I', int(self.file_attributes)),
+            pack('<I', int(self.share_access)),
+            pack('<I', self.create_disposition),
+            pack('<I', int(self.create_options)),
+            pack('<H', name_offset),
+            pack('<H', name_len),
+            pack('<I', create_contexts_offset),
+            pack('<I', create_contexts_len),
             name_bytes or b'\x00',
-            num_name_padding * b'\x00',
+            bytes(num_name_padding),
             create_contexts_bytes
         ])
 

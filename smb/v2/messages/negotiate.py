@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from uuid import UUID
 from typing import Tuple, Optional, ClassVar, Type
 from abc import ABC
-from struct import unpack as struct_unpack, pack as struct_pack
+from struct import pack, unpack_from
 from datetime import datetime
 
 from msdsalgs.time import filetime_to_datetime
@@ -46,38 +46,39 @@ class NegotiateResponse(ResponseMessage, ABC):
         return filetime_to_datetime(filetime=self._server_start_time)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> NegotiateResponse:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> NegotiateResponse:
         super()._from_bytes_and_header(data=data, header=header)
 
-        body_data: bytes = data[len(header):]
+        body_data: memoryview = data[len(header):]
 
-        dialect_revision = Dialect(struct_unpack('<H', body_data[4:6])[0])
-        security_buffer_offset: int = struct_unpack('<H', body_data[56:58])[0]
-        security_buffer_length: int = struct_unpack('<H', body_data[58:60])[0]
+        dialect_revision = Dialect(unpack_from('<H', buffer=body_data, offset=4)[0])
+        security_buffer_offset: int = unpack_from('<H', buffer=body_data, offset=56)[0]
+        security_buffer_length: int = unpack_from('<H', buffer=body_data, offset=58)[0]
 
         base_kwargs = dict(
             header=header,
             dialect_revision=dialect_revision,
-            security_mode=SecurityMode.from_int(value=struct_unpack('<H', body_data[2:4])[0]),
-            server_guid=UUID(bytes=body_data[8:24]),
-            capabilities=CapabilitiesFlag.from_int(struct_unpack('<I', body_data[24:28])[0]),
-            max_transact_size=struct_unpack('<I', body_data[28:32])[0],
-            max_read_size=struct_unpack('<I', body_data[32:36])[0],
-            max_write_size=struct_unpack('<I', body_data[36:40])[0],
-            _system_time=struct_unpack('<Q', data[40:48])[0],
-            _server_start_time=struct_unpack('<Q', data[48:56])[0],
+            security_mode=SecurityMode.from_int(value=unpack_from('<H', buffer=body_data, offset=2)[0]),
+            # TODO: Cannot do it from a `memoryview`?
+            server_guid=UUID(bytes=bytes(body_data[8:24])),
+            capabilities=CapabilitiesFlag.from_int(unpack_from('<I', buffer=body_data, offset=24)[0]),
+            max_transact_size=unpack_from('<I', buffer=body_data, offset=28)[0],
+            max_read_size=unpack_from('<I', buffer=body_data, offset=32)[0],
+            max_write_size=unpack_from('<I', buffer=body_data, offset=36)[0],
+            _system_time=unpack_from('<Q', buffer=data, offset=40)[0],
+            _server_start_time=unpack_from('<Q', buffer=data, offset=48)[0],
             security_buffer=data[security_buffer_offset:security_buffer_offset+security_buffer_length]
         )
 
         # TODO: Use a map?
 
         if dialect_revision == Dialect.SMB_3_1_1:
-            negotiate_context_offset: int = struct_unpack('<I', body_data[60:64])[0]
+            negotiate_context_offset: int = unpack_from('<I', buffer=body_data, offset=60)[0]
             return SMB311NegotiateResponse(
                 **base_kwargs,
                 negotiate_context_list=NegotiateContextList.from_bytes(
                     data=body_data[negotiate_context_offset - len(header):],
-                    num_contexts=struct_unpack('<I', body_data[6:8])[0]
+                    num_contexts=unpack_from('<I', buffer=body_data, offset=6)[0]
                 )
             )
         elif dialect_revision is Dialect.SMB_2_0_2:
@@ -151,34 +152,34 @@ class NegotiateRequest(RequestMessage, ABC):
         return len(self.dialects)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> NegotiateRequest:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> NegotiateRequest:
         super()._from_bytes_and_header(data=data, header=header)
 
-        body_data: bytes = data[len(header):]
+        body_data: memoryview = data[len(header):]
 
-        dialect_count: int = struct_unpack('<H', body_data[2:4])[0]
+        dialect_count: int = unpack_from('<H', buffer=body_data, offset=2)[0]
         if dialect_count <= 0:
             raise NoNegotiateDialectsError(observed_dialect_count=dialect_count)
 
         dialects: Tuple[Dialect, ...] = tuple(
             Dialect(dialect_value)
-            for dialect_value in struct_unpack(f'<{dialect_count * "H"}', body_data[36:36 + dialect_count * 2])
+            for dialect_value in unpack_from(f'<{dialect_count * "H"}', buffer=body_data, offset=36)
         )
         body_base_kwargs = dict(
-            security_mode=SecurityMode(struct_unpack('<H', body_data[4:6])[0]),
+            security_mode=SecurityMode(unpack_from('<H', buffer=body_data, offset=4)[0]),
             # TODO: The bytes may need to be reorder.
-            client_guid=UUID(bytes=body_data[12:28]),
+            client_guid=UUID(bytes=bytes(body_data[12:28])),
             dialects=dialects
         )
 
         if any(dialect in dialects for dialect in [Dialect.SMB_3_1_1, Dialect.SMB_3_0_2, Dialect.SMB_3_0]):
             capabilities = CapabilitiesFlag.from_int(
-                struct_unpack(f'<{dialect_count * "H"}', body_data[36:36 + dialect_count * 2])
+                unpack_from(f'<{dialect_count * "H"}', buffer=body_data, offset=36)
             )
 
             if Dialect.SMB_3_1_1 in dialects:
-                negotiate_context_offset = struct_unpack('<H', body_data[28:32])[0]
-                negotiate_context_count = struct_unpack('<H', body_data[32:34])[0]
+                negotiate_context_offset = unpack_from('<H', buffer=body_data, offset=28)[0]
+                negotiate_context_count = unpack_from('<H', buffer=body_data, offset=32)[0]
 
                 return SMB311NegotiateRequest(
                     header=header,
@@ -207,7 +208,7 @@ class NegotiateRequest(RequestMessage, ABC):
                 )
         elif any(dialect in dialects for dialect in [Dialect.SMB_2_1, Dialect.SMB_2_0_2]):
             capabilities_value = body_data[8:12]
-            if capabilities_value != b'\x00\x00\x00\x00':
+            if capabilities_value != bytes(4):
                 raise NegotiateRequestCapabilitiesNotEmpty(observed_capabilities_value=capabilities_value)
 
             # TODO: Do something with this?
@@ -237,23 +238,24 @@ class NegotiateRequest(RequestMessage, ABC):
             else None
         )
 
-        dialects_bytes_data: bytes = struct_pack(f'<{len(self.dialects) * "H"}', *self.dialects)
+        dialects_bytes_data: bytes = pack(f'<{len(self.dialects) * "H"}', *self.dialects)
         num_padding: int = (8 - (len(dialects_bytes_data) % 8)) % 8
 
         return bytes(self.header) + b''.join([
-            struct_pack('<H', 36),
-            struct_pack('<H', self.dialect_count),
-            struct_pack('<H', int(self.security_mode)),
-            b'\x00\x00',
-            struct_pack('<I', capabilities) if capabilities is not None else b'\x00\x00\x00\x00',
+            pack('<H', 36),
+            pack('<H', self.dialect_count),
+            pack('<H', int(self.security_mode)),
+            bytes(2),
+            pack('<I', capabilities) if capabilities is not None else bytes(4),
             self.client_guid.bytes,
+            # TODO: What is this magic? Use constants?
             (
-                struct_pack('<I', 64 + 36 + len(dialects_bytes_data) + num_padding)
-                + struct_pack('<H', len(negotiate_context_list))
-                + b'\x00\x00'
-            ) if negotiate_context_list is not None else 8 * b'\x00',
+                pack('<I', 64 + 36 + len(dialects_bytes_data) + num_padding)
+                + pack('<H', len(negotiate_context_list))
+                + bytes(2)
+            ) if negotiate_context_list is not None else bytes(8),
             dialects_bytes_data,
-            (num_padding * b'\x00' + bytes(negotiate_context_list)) if negotiate_context_list is not None else b''
+            (bytes(num_padding) + bytes(negotiate_context_list)) if negotiate_context_list is not None else b''
         ])
 
     def __len__(self) -> int:

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Any, ClassVar, Union, Type, AsyncContextManager, Tuple, Awaitable, AsyncGenerator, List, Optional
 from abc import ABC
 from asyncio import create_task

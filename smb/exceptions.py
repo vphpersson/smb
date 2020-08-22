@@ -205,15 +205,21 @@ class MalformedReadResponseError(MalformedSMBv2MessageError):
 
 
 class NonEmptyReadResponseReservedValueError(MalformedReadResponseError):
-    def __init__(self, observed_reserved_value: bytes):
-        super().__init__(f'Expected empty `Reserved` value, got {observed_reserved_value}.')
-        self.observed_reserved_value: bytes = observed_reserved_value
+    def __init__(self, observed_reserved_value: bytes, expected_reserved_value: bytes):
+        super().__init__(
+            message_header='Non-empty `Reserved` value.',
+            observed_value=observed_reserved_value,
+            expected_value=expected_reserved_value
+        )
 
 
 class NonEmptyReadResponseReserved2ValueError(MalformedReadResponseError):
-    def __init__(self, observed_reserved_2_value: bytes):
-        super().__init__(f'Expected empty `Reserved2` value, got {observed_reserved_2_value}.')
-        self.observed_reserved_2_value: bytes = observed_reserved_2_value
+    def __init__(self, observed_reserved_value: bytes, expected_reserved_value: bytes):
+        super().__init__(
+            message_header='Non-empty `Reserved2` value.',
+            observed_value=observed_reserved_value,
+            expected_value=expected_reserved_value
+        )
 
 
 class MalformedCloseRequestError(MalformedSMBv2MessageError):
@@ -226,7 +232,7 @@ class NonEmptyCloseRequestReservedValueError(MalformedCloseRequestError):
         self.observed_reserved_value: bytes = observed_reserved_value
 
 
-class InvalidCloseRequestFlagValueError(MalformedCloseRequestError):
+class InvalidCloseFlagValueError(MalformedCloseRequestError):
     pass
 
 

@@ -18,7 +18,7 @@ class TreeDisconnectResponse(ResponseMessage):
     _RESERVED: ClassVar[bytes] = bytes(2)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> TreeDisconnectResponse:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> TreeDisconnectResponse:
         super()._from_bytes_and_header(data=data, header=header)
 
         return cls(header=header)
@@ -40,7 +40,7 @@ class TreeDisconnectRequest(RequestMessage):
     _RESERVED: ClassVar[bytes] = bytes(2)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> TreeDisconnectRequest:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> TreeDisconnectRequest:
         super()._from_bytes_and_header(data=data, header=header)
 
         return cls(header=header)

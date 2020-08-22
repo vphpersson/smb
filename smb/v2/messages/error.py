@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
-from struct import pack as struct_pack
+from struct import pack
 
 from smb.v2.messages import ResponseMessage
 from smb.v2.header import Header, SMB311SyncResponseHeader
@@ -18,7 +18,7 @@ class ErrorResponse(ResponseMessage):
     _error_data: ClassVar[bytes] = b''
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header) -> ErrorResponse:
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> ErrorResponse:
         if isinstance(header, SMB311SyncResponseHeader):
             raise NotImplementedError
 
@@ -26,10 +26,10 @@ class ErrorResponse(ResponseMessage):
 
     def __bytes__(self) -> bytes:
         return bytes(self.header) + b''.join([
-            struct_pack('<H', self.STRUCTURE_SIZE),
-            struct_pack('<B', self._error_context_count),
+            pack('<H', self.STRUCTURE_SIZE),
+            pack('<B', self._error_context_count),
             self._RESERVED,
-            struct_pack('<I', self._byte_count),
+            pack('<I', self._byte_count),
             self._error_data
         ])
 

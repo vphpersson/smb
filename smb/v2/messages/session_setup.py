@@ -1,11 +1,11 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from struct import unpack as struct_unpack, pack as struct_pack
+from struct import pack, unpack_from
 from typing import ClassVar, Type
 
 from smb.v2.header import Header, SMBv2Command
 from smb.v2.messages import Message, RequestMessage, ResponseMessage
-from smb.exceptions import MalformedSMBv2MessageError, MalformedSessionSetupRequestError, IncorrectStructureSizeError, \
+from smb.exceptions import MalformedSMBv2MessageError, MalformedSessionSetupRequestError, \
     MalformedSessionSetupResponseError
 from smb.v2.structures.security_mode import SecurityMode
 from smb.v2.structures.capabilities import CapabilitiesFlag
@@ -24,18 +24,18 @@ class SessionSetupResponse(ResponseMessage):
     MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedSessionSetupResponseError
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header):
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> SessionSetupResponse:
         super()._from_bytes_and_header(data=data, header=header)
 
-        body_data: bytes = data[len(header):]
+        body_data: memoryview = data[len(header):]
 
-        security_buffer_offset: int = struct_unpack('<H', body_data[4:6])[0]
-        security_buffer_length: int = struct_unpack('<H', body_data[6:8])[0]
+        security_buffer_offset: int = unpack_from('<H', buffer=body_data, offset=4)[0]
+        security_buffer_length: int = unpack_from('<H', buffer=body_data, offset=6)[0]
 
         return SessionSetupResponse(
             header=header,
-            session_flags=SessionFlag(struct_unpack('<H', body_data[2:4])[0]),
-            security_buffer=data[security_buffer_offset:security_buffer_offset+security_buffer_length]
+            session_flags=SessionFlag(unpack_from('<H', buffer=body_data, offset=2)[0]),
+            security_buffer=bytes(data[security_buffer_offset:security_buffer_offset+security_buffer_length])
         )
 
     # TODO: Implement.
@@ -63,29 +63,25 @@ class SessionSetupRequest(RequestMessage):
     previous_session_id: bytes = bytes(8)
 
     @classmethod
-    def _from_bytes_and_header(cls, data: bytes, header: Header):
+    def _from_bytes_and_header(cls, data: memoryview, header: Header) -> SessionSetupRequest:
+        super()._from_bytes_and_header(data=data, header=header)
 
-        body_data: bytes = data[len(header):]
+        body_data: memoryview = data[len(header):]
 
-        try:
-            cls._check_structure_size(structure_size_to_test=struct_unpack('<H', body_data[:2])[0])
-        except IncorrectStructureSizeError as e:
-            raise MalformedSessionSetupRequestError(str(e)) from e
-
-        if body_data[8:12] != cls._RESERVED_CHANNEL:
+        if bytes(body_data[8:12]) != cls._RESERVED_CHANNEL:
             # TODO: Use proper exception.
             raise ValueError
 
-        security_buffer_offset: int = struct_unpack('<H', body_data[12:14])[0]
-        security_buffer_length: int = struct_unpack('<H', body_data[14:16])[0]
+        security_buffer_offset: int = unpack_from('<H', buffer=body_data, offset=12)[0]
+        security_buffer_length: int = unpack_from('<H', buffer=body_data, offset=14)[0]
 
         return cls(
             header=header,
-            flags=SessionSetupRequestFlag(struct_unpack('<B', body_data[2:3])[0]),
-            security_mode=SecurityMode(struct_unpack('<B', body_data[3:4])[0]),
-            capabilities=CapabilitiesFlag.from_int(struct_unpack('<I', body_data[4:8])[0]),
-            previous_session_id=body_data[16:24],
-            security_buffer=data[security_buffer_offset:security_buffer_offset+security_buffer_length]
+            flags=SessionSetupRequestFlag(unpack_from('<B', buffer=body_data, offset=2)[0]),
+            security_mode=SecurityMode(unpack_from('<B', buffer=body_data, offset=3)[0]),
+            capabilities=CapabilitiesFlag.from_int(unpack_from('<I', buffer=body_data, offset=4)[0]),
+            previous_session_id=bytes(body_data[16:24]),
+            security_buffer=bytes(data[security_buffer_offset:security_buffer_offset+security_buffer_length])
         )
 
     def __len__(self) -> int:
@@ -93,13 +89,13 @@ class SessionSetupRequest(RequestMessage):
 
     def __bytes__(self) -> bytes:
         return bytes(self.header) + b''.join([
-            struct_pack('<H', 25),
-            struct_pack('<B', self.flags.value),
-            struct_pack('<B', int(self.security_mode)),
-            struct_pack('<I', int(self.capabilities)),
+            pack('<H', 25),
+            pack('<B', self.flags.value),
+            pack('<B', int(self.security_mode)),
+            pack('<I', int(self.capabilities)),
             self._RESERVED_CHANNEL,
-            struct_pack('<H', len(self.header) + 24),
-            struct_pack('<H', len(self.security_buffer)),
+            pack('<H', len(self.header) + 24),
+            pack('<H', len(self.security_buffer)),
             self.previous_session_id,
             self.security_buffer
         ])

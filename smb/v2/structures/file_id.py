@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import ByteString
 
 
 @dataclass
@@ -8,10 +9,13 @@ class FileId:
     volatile_file_handle: bytes
 
     @classmethod
-    def from_bytes(cls, data: bytes) -> FileId:
+    def from_bytes(cls, data: ByteString, base_offset: int = 0) -> FileId:
+
+        data = memoryview(data)[base_offset:]
+
         return cls(
-            persistent_file_handle=data[:8],
-            volatile_file_handle=data[8:16]
+            persistent_file_handle=bytes(data[:8]),
+            volatile_file_handle=bytes(data[8:16])
         )
 
     def __bytes__(self) -> bytes:

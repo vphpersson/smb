@@ -72,6 +72,7 @@ class QueryDirectoryRequest(RequestMessage):
     [MS-SMB2]: SMB2 QUERY_DIRECTORY Request | Microsoft Docs
     https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-smb2/10906442-294c-46d3-8515-c277efe1f752
     """
+
     STRUCTURE_SIZE: ClassVar[int] = 33
     COMMAND: ClassVar[SMBv2Command] = SMBv2Command.SMB2_QUERY_DIRECTORY
     MALFORMED_ERROR_CLASS: ClassVar[Type[MalformedSMBv2MessageError]] = MalformedQueryDirectoryRequestError

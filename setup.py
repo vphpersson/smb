@@ -5,9 +5,9 @@ setup(
     version='0.1',
     packages=find_packages(),
     install_requires=[
-        'msdsalgs @ http://github.com/vphpersson/msdsalgs/tarball/master',
-        'ntlm @ http://github.com/vphpersson/ntlm/tarball/master',
-        'spnego @ http://github.com/vphpersson/spnego/tarball/master',
-        'asn1 @ http://github.com/vphpersson/asn1/tarball/master'
+        'msdsalgs @ git+ssh://git@github.com/vphpersson/msdsalgs.git#egg=msdsalgs',
+        'ntlm @ git+ssh://git@github.com/vphpersson/ntlm.git#egg=ntlm',
+        'spnego @ git+ssh://git@github.com/vphpersson/spnego.git#egg=spnego',
+        'asn1 @ git+ssh://git@github.com/vphpersson/asn1.git#egg=asn1'
     ]
 )

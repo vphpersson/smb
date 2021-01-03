@@ -1,0 +1,4 @@
+-e git+ssh://git@github.com/vphpersson/ntlm.git#egg=ntlm
+-e git+ssh://git@github.com/vphpersson/spnego.git#egg=spnego
+-e git+ssh://git@github.com/vphpersson/msdsalgs.git#egg=msdsalgs
+-e git+ssh://git@github.com/vphpersson/asn1.git#egg=asn1

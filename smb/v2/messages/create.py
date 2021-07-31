@@ -93,7 +93,7 @@ class CreateResponse(ResponseMessage):
                 expected_response_flag_values=[cls._RESERVED_FLAG_VALUE] + list(CreateFlag)
             ) from e
 
-        raw_create_action_value: int = partial_unpack_from('<I', offset=8)[0]
+        raw_create_action_value: int = partial_unpack_from('<I', offset=4)[0]
         try:
             create_action = CreateAction(raw_create_action_value)
         except ValueError as e:
